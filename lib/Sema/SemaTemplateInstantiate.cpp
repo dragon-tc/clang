@@ -1376,7 +1376,7 @@ TemplateInstantiator::TransformTemplateTypeParmType(TypeLocBuilder &TLB,
     assert(Arg.getKind() == TemplateArgument::Type &&
            "Template argument kind mismatch");
 
-    QualType Replacement = Arg.getAsType();
+    QualType Replacement = getSema().Context.getCanonicalType(Arg.getAsType());
 
     // TODO: only do this uniquing once, at the start of instantiation.
     QualType Result

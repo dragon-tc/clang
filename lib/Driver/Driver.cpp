@@ -102,6 +102,10 @@ void Driver::ParseDriverMode(ArrayRef<const char *> Args) {
   }
 }
 
+static llvm::Triple computeTargetTriple(StringRef DefaultTargetTriple,
+                                        const ArgList &Args,
+                                        StringRef DarwinArchName);
+
 InputArgList *Driver::ParseArgStrings(ArrayRef<const char *> ArgList) {
   llvm::PrettyStackTraceString CrashInfo("Command line argument parsing");
 
@@ -138,9 +142,14 @@ InputArgList *Driver::ParseArgStrings(ArrayRef<const char *> ArgList) {
     }
   }
 
+  llvm::Triple Target = computeTargetTriple(DefaultTargetTriple, *Args, "");
+  const bool IsAndroid = Target.getEnvironment() == llvm::Triple::Android;
   for (arg_iterator it = Args->filtered_begin(options::OPT_UNKNOWN),
          ie = Args->filtered_end(); it != ie; ++it) {
-    Diags.Report(diag::err_drv_unknown_argument) << (*it) ->getAsString(*Args);
+    if (IsAndroid)
+      Diags.Report(diag::warn_drv_unknown_argument) << (*it)->getAsString(*Args);
+    else
+      Diags.Report(diag::err_drv_unknown_argument) << (*it)->getAsString(*Args);
   }
 
   return Args;
@@ -351,8 +360,17 @@ Compilation *Driver::BuildCompilation(ArrayRef<const char *> ArgList) {
     A->claim();
     PrefixDirs.push_back(A->getValue(0));
   }
-  if (const Arg *A = Args->getLastArg(options::OPT__sysroot_EQ))
+  if (const Arg *A = Args->getLastArg(options::OPT__sysroot_EQ)) {
     SysRoot = A->getValue();
+  } else {
+    SmallString<128> SysRootCandidate(Dir);
+    llvm::sys::path::append(SysRootCandidate, "..");
+    llvm::sys::path::append(SysRootCandidate, "..");
+    llvm::sys::path::append(SysRootCandidate, "sysroot");
+    bool Exists = false;
+    if (!llvm::sys::fs::exists(SysRootCandidate.c_str(), Exists) && Exists)
+      SysRoot = SysRootCandidate.str();
+  }
   if (const Arg *A = Args->getLastArg(options::OPT__dyld_prefix_EQ))
     DyldPrefix = A->getValue();
   if (Args->hasArg(options::OPT_nostdlib))
@@ -1048,10 +1066,12 @@ void Driver::BuildInputs(const ToolChain &TC, DerivedArgList &Args,
           // If the driver is invoked as C++ compiler (like clang++ or c++) it
           // should autodetect some input files as C++ for g++ compatibility.
           if (CCCIsCXX()) {
+            const bool IsAndroid = (TC.getTriple().getEnvironment() ==
+                                    llvm::Triple::Android);
             types::ID OldTy = Ty;
             Ty = types::lookupCXXTypeForCType(Ty);
 
-            if (Ty != OldTy)
+            if (Ty != OldTy && !IsAndroid)
               Diag(clang::diag::warn_drv_treating_input_as_cxx)
                 << getTypeName(OldTy) << getTypeName(Ty);
           }
@@ -1131,7 +1151,15 @@ void Driver::BuildActions(const ToolChain &TC, DerivedArgList &Args,
   phases::ID FinalPhase = getFinalPhase(Args, &FinalPhaseArg);
 
   if (FinalPhase == phases::Link && Args.hasArg(options::OPT_emit_llvm)) {
-    Diag(clang::diag::err_drv_emit_llvm_link);
+    // Allow linking with -emit-llvm for le*-none-ndk
+    if (TC.getTriple().getOS() == llvm::Triple::NDK) {
+      if (TC.getTriple().getArch() != llvm::Triple::le32 &&
+          TC.getTriple().getArch() != llvm::Triple::le64) {
+        Diag(clang::diag::err_drv_emit_llvm_link);
+      }
+    } else {
+      Diag(clang::diag::err_drv_emit_llvm_link);
+    }
   }
 
   // Reject -Z* at the top level, these options should never have been exposed
@@ -1181,6 +1209,15 @@ void Driver::BuildActions(const ToolChain &TC, DerivedArgList &Args,
   for (unsigned i = 0, e = Inputs.size(); i != e; ++i) {
     types::ID InputType = Inputs[i].first;
     const Arg *InputArg = Inputs[i].second;
+
+    // Let le*-none-ndk treats .bc as .o, so that we don't need to do
+    // the extra compile actions.
+    if ((TC.getTriple().getArch() == llvm::Triple::le32 ||
+         TC.getTriple().getArch() == llvm::Triple::le64) &&
+        TC.getTriple().getOS() == llvm::Triple::NDK) {
+      if (InputType == types::TY_LLVM_BC)
+        InputType = types::TY_Object;
+    }
 
     PL.clear();
     types::getCompilationPhases(InputType, PL);
@@ -1795,23 +1832,27 @@ std::string Driver::GetFilePath(const char *Name, const ToolChain &TC) const {
 
 std::string Driver::GetProgramPath(const char *Name,
                                    const ToolChain &TC) const {
+  std::string ExeName(Name);
+#if defined(WIN32)
+  ExeName += ".exe";
+#endif
   // FIXME: Needs a better variable than DefaultTargetTriple
-  std::string TargetSpecificExecutable(DefaultTargetTriple + "-" + Name);
+  std::string TargetSpecificExeName(DefaultTargetTriple + "-" + ExeName);
   // Respect a limited subset of the '-Bprefix' functionality in GCC by
   // attempting to use this prefix when looking for program paths.
   for (Driver::prefix_list::const_iterator it = PrefixDirs.begin(),
        ie = PrefixDirs.end(); it != ie; ++it) {
     if (llvm::sys::fs::is_directory(*it)) {
       SmallString<128> P(*it);
-      llvm::sys::path::append(P, TargetSpecificExecutable);
+      llvm::sys::path::append(P, TargetSpecificExeName);
       if (llvm::sys::fs::can_execute(Twine(P)))
         return P.str();
       llvm::sys::path::remove_filename(P);
-      llvm::sys::path::append(P, Name);
+      llvm::sys::path::append(P, ExeName);
       if (llvm::sys::fs::can_execute(Twine(P)))
         return P.str();
     } else {
-      SmallString<128> P(*it + Name);
+      SmallString<128> P(*it + ExeName);
       if (llvm::sys::fs::can_execute(Twine(P)))
         return P.str();
     }
@@ -1821,17 +1862,18 @@ std::string Driver::GetProgramPath(const char *Name,
   for (ToolChain::path_list::const_iterator
          it = List.begin(), ie = List.end(); it != ie; ++it) {
     SmallString<128> P(*it);
-    llvm::sys::path::append(P, TargetSpecificExecutable);
+    llvm::sys::path::append(P, TargetSpecificExeName);
     if (llvm::sys::fs::can_execute(Twine(P)))
       return P.str();
     llvm::sys::path::remove_filename(P);
-    llvm::sys::path::append(P, Name);
+    llvm::sys::path::append(P, ExeName);
     if (llvm::sys::fs::can_execute(Twine(P)))
       return P.str();
   }
 
   // If all else failed, search the path.
-  std::string P(llvm::sys::FindProgramByName(TargetSpecificExecutable));
+  std::string TargetSpecificName(DefaultTargetTriple + "-" + Name);
+  std::string P(llvm::sys::FindProgramByName(TargetSpecificName));
   if (!P.empty())
     return P;
 
@@ -1978,6 +2020,12 @@ const ToolChain &Driver::getToolChain(const ArgList &Args,
         TC = new toolchains::Hexagon_TC(*this, Target, Args);
       else
         TC = new toolchains::Linux(*this, Target, Args);
+      break;
+    case llvm::Triple::NDK:
+      if (Target.getArch() == llvm::Triple::le32 ||
+          Target.getArch() == llvm::Triple::le64)
+        TC = new toolchains::NDKClang(*this, Target, Args);
+      assert(TC && "Unexpected target arch for NDK toolchain");
       break;
     case llvm::Triple::Solaris:
       TC = new toolchains::Solaris(*this, Target, Args);

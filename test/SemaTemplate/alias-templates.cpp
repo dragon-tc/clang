@@ -201,3 +201,17 @@ namespace PR16904 {
   template <typename T, typename U, typename V>
   using derived2 = ::PR16904::base<T, U>::template derived<V>; // expected-error {{expected a type}} expected-error {{expected ';'}}
 }
+
+namespace VariadicTemplateAlias {
+  template <typename... T> struct tuple;
+  template <typename... T> struct extract_;
+
+  // Note: Both the template alias and the concatenation of variadic template
+  // arguments A and B are required to trigger the assertion failure.
+
+  template <typename... T>
+  using extract = typename extract_<T...>::type;
+
+  template <typename... A, typename... B>
+  inline auto test(tuple<A...>&& xs, B&&... ys) -> extract<A&&..., B...> { }
+}

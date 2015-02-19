@@ -44,7 +44,13 @@ using namespace clang::driver::tools;
 using namespace clang;
 using namespace llvm::opt;
 
-static void addAssemblerKPIC(const ArgList &Args, ArgStringList &CmdArgs) {
+static void addAssemblerKPIC(const ArgList &Args, ArgStringList &CmdArgs,
+                             bool IsAndroid) {
+  if (IsAndroid) {
+    CmdArgs.push_back("-KPIC");
+    return;
+  }
+
   Arg *LastPICArg = Args.getLastArg(options::OPT_fPIC, options::OPT_fno_PIC,
                                     options::OPT_fpic, options::OPT_fno_pic,
                                     options::OPT_fPIE, options::OPT_fno_PIE,
@@ -455,6 +461,15 @@ static bool isSignedCharDefault(const llvm::Triple &Triple) {
   default:
     return true;
 
+  case llvm::Triple::le32:
+  case llvm::Triple::le64:
+    if (Triple.getOS() == llvm::Triple::NDK) {
+      // For PNDK, we follow ARM at the moment.  To be revised in the future.
+      return false;
+    }
+    // For Native Client, use the default value.
+    return true;
+
   case llvm::Triple::aarch64:
   case llvm::Triple::aarch64_be:
   case llvm::Triple::arm64:
@@ -527,6 +542,7 @@ static void getARMFPUFeatures(const Driver &D, const Arg *A,
   } else if (FPU == "vfp") {
     Features.push_back("+vfp2");
     Features.push_back("-neon");
+    Features.push_back("+d16");
   } else if (FPU == "vfp3-d16" || FPU == "vfpv3-d16") {
     Features.push_back("+vfp3");
     Features.push_back("+d16");
@@ -880,6 +896,15 @@ void Clang::AddAArch64TargetArgs(const ArgList &Args,
     CmdArgs.push_back("-aarch64-strict-align");
   }
 
+  if (Arg *A = Args.getLastArg(options::OPT_mfix_cortex_a53_835769,
+                               options::OPT_mno_fix_cortex_a53_835769)) {
+    CmdArgs.push_back("-backend-option");
+    if (A->getOption().matches(options::OPT_mfix_cortex_a53_835769))
+      CmdArgs.push_back("-aarch64-fix-cortex-a53-835769=1");
+    else
+      CmdArgs.push_back("-aarch64-fix-cortex-a53-835769=0");
+  }
+
   // Setting -mno-global-merge disables the codegen global merge pass. Setting
   // -mglobal-merge has no effect as the pass is enabled by default.
   if (Arg *A = Args.getLastArg(options::OPT_mglobal_merge,
@@ -903,6 +928,9 @@ void mips::getMipsCPUAndABI(const ArgList &Args,
   if (Triple.getVendor() == llvm::Triple::ImaginationTechnologies &&
       Triple.getEnvironment() == llvm::Triple::GNU) {
     DefMips32CPU = "mips32r6";
+    DefMips64CPU = "mips64r6";
+  } else if (Triple.getEnvironment() == llvm::Triple::Android) {
+    DefMips32CPU = "mips32";
     DefMips64CPU = "mips64r6";
   }
 
@@ -1122,6 +1150,14 @@ void Clang::AddMIPSTargetArgs(const ArgList &Args,
     if (A->getOption().matches(options::OPT_mno_check_zero_division)) {
       CmdArgs.push_back("-mllvm");
       CmdArgs.push_back("-mno-check-zero-division");
+    }
+  }
+
+  if (Arg *A = Args.getLastArg(options::OPT_mnan_directive,
+                               options::OPT_mno_nan_directive)) {
+    if (A->getOption().matches(options::OPT_mno_nan_directive)) {
+      CmdArgs.push_back("-mllvm");
+      CmdArgs.push_back("-mips-no-nan-directive");
     }
   }
 
@@ -1425,7 +1461,13 @@ static void AddGoldPlugin(const ToolChain &ToolChain, const ArgList &Args,
   // as gold requires -plugin to come before any -plugin-opt that -Wl might
   // forward.
   CmdArgs.push_back("-plugin");
+#if defined(_WIN32)
+  std::string Plugin = ToolChain.getDriver().Dir + "/LLVMgold.dll";
+#elif defined(__APPLE__)
+  std::string Plugin = ToolChain.getDriver().Dir + "/../lib/LLVMgold.dylib";
+#else
   std::string Plugin = ToolChain.getDriver().Dir + "/../lib/LLVMgold.so";
+#endif
   CmdArgs.push_back(Args.MakeArgString(Plugin));
 
   // Try to pass driver level flags relevant to LTO code generation down to
@@ -1539,6 +1581,27 @@ void Clang::AddX86TargetArgs(const ArgList &Args,
       getToolChain().getDriver().Diag(diag::err_drv_unsupported_option_argument)
           << A->getOption().getName() << Value;
     }
+  }
+
+  // Setting -mstack-protector-guard=[global|tls] for different stack protector
+  // cookie implementation.
+  bool ForceGVStackCookie = false;
+  if (getToolChain().getTriple().getEnvironment() == llvm::Triple::Android) {
+    // For Android, we have to default to global variable implementation;
+    // otherwise, the Android x86 devices with old bionic will be unable
+    // to run the applications with stack protectors.
+    ForceGVStackCookie = true;
+  }
+  if (Arg *A = Args.getLastArg(options::OPT_mstack_protector_guard_EQ)) {
+    if (StringRef(A->getValue()) == "tls") {
+      ForceGVStackCookie = false;
+    } else if (StringRef(A->getValue()) == "global") {
+      ForceGVStackCookie = true;
+    }
+  }
+  if (ForceGVStackCookie) {
+    CmdArgs.push_back("-backend-option");
+    CmdArgs.push_back("-x86-force-gv-stack-cookie");
   }
 }
 
@@ -2683,7 +2746,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                        Triple.getArch() == llvm::Triple::arm64 ||
                        Triple.getArch() == llvm::Triple::aarch64))
     PIC = PIE = false;
-  if (Args.hasArg(options::OPT_static))
+  if (Args.hasArg(options::OPT_static) &&
+      getToolChain().getTriple().getEnvironment() != llvm::Triple::Android)
     PIC = PIE = false;
 
   if (Arg *A = Args.getLastArg(options::OPT_mdynamic_no_pic)) {
@@ -3363,6 +3427,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
     Args.AddLastArg(CmdArgs, options::OPT_trigraphs);
   }
+  if (Arg *A = Args.getLastArg(options::OPT_Qignore_c_std_not_allowed_with_cplusplus))
+    A->render(Args, CmdArgs);
 
   // GCC's behavior for -Wwrite-strings is a bit strange:
   //  * In C, this "warning flag" changes the types of string literals from
@@ -3633,8 +3699,12 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   }
 
   // Translate -mstackrealign
+  bool DefaultStackRealign =
+    ((getToolChain().getTriple().getEnvironment() == llvm::Triple::Android) &&
+     (getToolChain().getTriple().getArch() == llvm::Triple::x86 ||
+      getToolChain().getTriple().getArch() == llvm::Triple::x86_64));
   if (Args.hasFlag(options::OPT_mstackrealign, options::OPT_mno_stackrealign,
-                   false)) {
+                   DefaultStackRealign)) {
     CmdArgs.push_back("-backend-option");
     CmdArgs.push_back("-force-align-stack");
   }
@@ -3698,6 +3768,14 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
         CmdArgs.push_back("-arm-long-calls");
       }
     }
+  }
+
+  if (!Args.hasFlag(options::OPT_fglobal_ctor_const_promotion,
+                    options::OPT_fno_global_ctor_const_promotion,
+                    getToolChain().getTriple().getEnvironment() !=
+                    llvm::Triple::Android)) {
+    CmdArgs.push_back("-mllvm");
+    CmdArgs.push_back("-disable-global-ctor-const-promotion");
   }
 
   // Forward -f options with positive and negative forms; we translate
@@ -4265,7 +4343,10 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   // le32-specific flags: 
   //  -fno-math-builtin: clang should not convert math builtins to intrinsics
   //                     by default.
-  if (getToolChain().getArch() == llvm::Triple::le32) {
+  if (getToolChain().getArch() == llvm::Triple::le32 ||
+      getToolChain().getArch() == llvm::Triple::le64) {
+    // This is a specific flag for PNaCl in upstream, but it should be
+    // harmless for le32/le64 NDK too.
     CmdArgs.push_back("-fno-math-builtin");
   }
 
@@ -4299,6 +4380,23 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       CmdArgs.push_back("-traditional-cpp");
     else
       D.Diag(diag::err_drv_clang_unsupported) << A->getAsString(Args);
+  }
+
+  if (Arg *A = Args.getLastArg(options::OPT_fcxx_missing_return_semantics,
+                               options::OPT_fno_cxx_missing_return_semantics)) {
+    if (A->getOption().matches(options::OPT_fcxx_missing_return_semantics))
+      CmdArgs.push_back("-fcxx-missing-return-semantics");
+    else
+      CmdArgs.push_back("-fno-cxx-missing-return-semantics");
+  } else if (getToolChain().getTriple().getEnvironment() ==
+             llvm::Triple::Android) {
+    // For Android, we prefer to disable C++ missing return semantics when
+    // the user didn't specify the option.
+    CmdArgs.push_back("-fno-cxx-missing-return-semantics");
+  } else if (getToolChain().getArch() == llvm::Triple::le32 ||
+             getToolChain().getArch() == llvm::Triple::le64) {
+    // Same reason for pndk
+    CmdArgs.push_back("-fno-cxx-missing-return-semantics");
   }
 
   Args.AddLastArg(CmdArgs, options::OPT_dM);
@@ -6160,7 +6258,7 @@ void openbsd::Assemble::ConstructJob(Compilation &C, const JobAction &JA,
   }
 
   if (NeedsKPIC)
-    addAssemblerKPIC(Args, CmdArgs);
+    addAssemblerKPIC(Args, CmdArgs, false);
 
   Args.AddAllArgValues(CmdArgs, options::OPT_Wa_COMMA,
                        options::OPT_Xassembler);
@@ -6477,7 +6575,7 @@ void freebsd::Assemble::ConstructJob(Compilation &C, const JobAction &JA,
     else
       CmdArgs.push_back("-EL");
 
-    addAssemblerKPIC(Args, CmdArgs);
+    addAssemblerKPIC(Args, CmdArgs, false);
   } else if (getToolChain().getArch() == llvm::Triple::arm ||
              getToolChain().getArch() == llvm::Triple::armeb ||
              getToolChain().getArch() == llvm::Triple::thumb ||
@@ -6509,7 +6607,7 @@ void freebsd::Assemble::ConstructJob(Compilation &C, const JobAction &JA,
     else
       CmdArgs.push_back("-Av9a");
 
-    addAssemblerKPIC(Args, CmdArgs);
+    addAssemblerKPIC(Args, CmdArgs, false);
   }
 
   Args.AddAllArgValues(CmdArgs, options::OPT_Wa_COMMA,
@@ -6750,19 +6848,19 @@ void netbsd::Assemble::ConstructJob(Compilation &C, const JobAction &JA,
     else
       CmdArgs.push_back("-EL");
 
-    addAssemblerKPIC(Args, CmdArgs);
+    addAssemblerKPIC(Args, CmdArgs, false);
     break;
   }
 
   case llvm::Triple::sparc:
     CmdArgs.push_back("-32");
-    addAssemblerKPIC(Args, CmdArgs);
+    addAssemblerKPIC(Args, CmdArgs, false);
     break;
 
   case llvm::Triple::sparcv9:
     CmdArgs.push_back("-64");
     CmdArgs.push_back("-Av9");
-    addAssemblerKPIC(Args, CmdArgs);
+    addAssemblerKPIC(Args, CmdArgs, false);
     break;
 
   default:
@@ -7118,8 +7216,10 @@ void gnutools::Assemble::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back(Args.MakeArgString("-march=" + CPUName));
   }
 
+  bool IsAndroid = (getToolChain().getTriple().getEnvironment() ==
+                    llvm::Triple::Android);
   if (NeedsKPIC)
-    addAssemblerKPIC(Args, CmdArgs);
+    addAssemblerKPIC(Args, CmdArgs, IsAndroid);
 
   Args.AddAllArgValues(CmdArgs, options::OPT_Wa_COMMA,
                        options::OPT_Xassembler);
@@ -7163,7 +7263,8 @@ static void AddLibgcc(const llvm::Triple &Triple, const Driver &D,
 
   if (StaticLibgcc && !isAndroid)
     CmdArgs.push_back("-lgcc_eh");
-  else if (!Args.hasArg(options::OPT_shared) && D.CCCIsCXX())
+  else if (!Args.hasArg(options::OPT_shared) && D.CCCIsCXX() &&
+           !StaticLibgcc && !isAndroid)
     CmdArgs.push_back("-lgcc");
 
   // According to Android ABI, we have to link with libdl if we are
@@ -7246,6 +7347,54 @@ static void AddRunTimeLibs(const ToolChain &TC, const Driver &D,
   }
 }
 
+void ndktools::Link::ConstructJob(Compilation &C, const JobAction &JA,
+                                  const InputInfo &Output,
+                                  const InputInfoList &Inputs,
+                                  const ArgList &Args,
+                                  const char *LinkingOutput) const {
+  const toolchains::NDKClang& ToolChain =
+    static_cast<const toolchains::NDKClang&>(getToolChain());
+  const Driver &D = getToolChain().getDriver();
+
+  ArgStringList CmdArgs;
+
+  // Silence warning for -emit-llvm
+  Args.ClaimAllArgs(options::OPT_emit_llvm);
+
+  if (Args.hasArg(options::OPT_pie) && !Args.hasArg(options::OPT_shared)) {
+    CmdArgs.push_back("-pie");
+  }
+
+  if (Args.hasArg(options::OPT_shared)) {
+    CmdArgs.push_back("-shared");
+  }
+
+  if (Args.hasArg(options::OPT_static)) {
+    CmdArgs.push_back("-static");
+  }
+
+  if (!D.SysRoot.empty())
+    CmdArgs.push_back(Args.MakeArgString("--sysroot=" + D.SysRoot));
+
+  CmdArgs.push_back("-o");
+  CmdArgs.push_back(Output.getFilename());
+
+  Args.AddAllArgs(CmdArgs, options::OPT_L);
+
+  const ToolChain::path_list Paths = ToolChain.getFilePaths();
+
+  for (ToolChain::path_list::const_iterator i = Paths.begin(), e = Paths.end();
+       i != e; ++i)
+    CmdArgs.push_back(Args.MakeArgString(StringRef("-L") + *i));
+
+  AddLinkerInputs(ToolChain, Inputs, Args, CmdArgs);
+
+  const char *Exec =
+    Args.MakeArgString(getToolChain().GetProgramPath("link"));
+
+  C.addCommand(new Command(JA, *this, Exec, CmdArgs));
+}
+
 void gnutools::Link::ConstructJob(Compilation &C, const JobAction &JA,
                                   const InputInfo &Output,
                                   const InputInfoList &Inputs,
@@ -7256,6 +7405,17 @@ void gnutools::Link::ConstructJob(Compilation &C, const JobAction &JA,
   const Driver &D = ToolChain.getDriver();
   const bool isAndroid =
     ToolChain.getTriple().getEnvironment() == llvm::Triple::Android;
+  bool has_Wl_shared = false;
+  if (isAndroid && Args.hasArg(options::OPT_Wl_COMMA)) {
+    for (ArgList::const_iterator it = Args.begin(), ie = Args.end();
+         it != ie; ++it) {
+      const Arg *A = *it;
+      if (A->getOption().matches(options::OPT_Wl_COMMA) &&
+          A->containsValue("-shared")) {
+        has_Wl_shared = true;
+      }
+    }
+  }
   const bool IsPIE =
     !Args.hasArg(options::OPT_shared) &&
     !Args.hasArg(options::OPT_static) &&
@@ -7263,7 +7423,7 @@ void gnutools::Link::ConstructJob(Compilation &C, const JobAction &JA,
      // On Android every code is PIC so every executable is PIE
      // Cannot use isPIEDefault here since otherwise
      // PIE only logic will be enabled during compilation
-     isAndroid);
+     (isAndroid && !has_Wl_shared));
 
   ArgStringList CmdArgs;
 

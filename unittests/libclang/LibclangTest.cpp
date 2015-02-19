@@ -17,6 +17,8 @@
 #include <set>
 #define DEBUG_TYPE "libclang-test"
 
+typedef unsigned int uint;
+
 TEST(libclang, clang_parseTranslationUnit2_InvalidArgs) {
   EXPECT_EQ(CXError_InvalidArguments,
             clang_parseTranslationUnit2(nullptr, nullptr, nullptr, 0, nullptr,

@@ -843,7 +843,8 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
   //   If the '}' that terminates a function is reached, and the value of the
   //   function call is used by the caller, the behavior is undefined.
   if (getLangOpts().CPlusPlus && !FD->hasImplicitReturnZero() &&
-      !FD->getReturnType()->isVoidType() && Builder.GetInsertBlock()) {
+      !FD->getReturnType()->isVoidType() && Builder.GetInsertBlock() &&
+      getLangOpts().CXXMissingReturnSemantics) {
     if (SanOpts->Return) {
       SanitizerScope SanScope(this);
       EmitCheck(Builder.getFalse(), "missing_return",
