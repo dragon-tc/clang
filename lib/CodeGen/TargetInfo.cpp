@@ -1433,6 +1433,7 @@ static unsigned getNativeVectorSizeForAVXABI(X86AVXABILevel AVXLevel) {
   case X86AVXABILevel::None:
     return 128;
   }
+  llvm_unreachable("Unknown AVXLevel");
 }
 
 /// X86_64ABIInfo - The X86_64 ABI information.
