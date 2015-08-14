@@ -6970,6 +6970,10 @@ public:
       : LinuxTargetInfo<X86_64TargetInfo>(Triple) {
     LongDoubleFormat = &llvm::APFloat::IEEEquad;
   }
+
+  bool useFloat128ManglingForLongDouble() const override {
+    return true;
+  }
 };
 } // end anonymous namespace
 
