@@ -8395,6 +8395,9 @@ void gnutools::Assembler::ConstructJob(Compilation &C, const JobAction &JA,
     if ((A = Args.getLastArg(options::OPT_mcpu_EQ)) &&
         StringRef(A->getValue()).lower() == "krait")
       CmdArgs.push_back("-march=armv7-a");
+    else if ((A = Args.getLastArg(options::OPT_mcpu_EQ)) &&
+        StringRef(A->getValue()).lower() == "krait2")
+      CmdArgs.push_back("-march=armv7-a -mtune=cortex-a15 -marm");
     else
       Args.AddLastArg(CmdArgs, options::OPT_mcpu_EQ);
     Args.AddLastArg(CmdArgs, options::OPT_mfpu_EQ);
