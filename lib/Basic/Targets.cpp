@@ -4318,7 +4318,7 @@ public:
       Features["neon"] = true;
     } else if (CPU == "swift" || CPU == "cortex-a7" ||
                CPU == "cortex-a12" || CPU == "cortex-a15" ||
-               CPU == "cortex-a17" || CPU == "krait") {
+               CPU == "cortex-a17" || CPU == "krait" || CPU == "krait2") {
       Features["vfp4"] = true;
       Features["neon"] = true;
       Features["hwdiv"] = true;
