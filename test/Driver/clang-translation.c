@@ -32,6 +32,7 @@
 // ARMV7_DEFAULT: "-mfloat-abi" "soft"
 // ARMV7_DEFAULT-NOT: "-msoft-float"
 // ARMV7_DEFAULT: "-x" "c"
+// ARMV7_DEFAULT: "-target-cpu" "krait"
 
 // RUN: %clang -target x86_64-apple-darwin10 -### -S %s -arch armv7 \
 // RUN: -msoft-float 2>&1 | FileCheck -check-prefix=ARMV7_SOFTFLOAT %s
