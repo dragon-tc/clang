@@ -44,10 +44,6 @@ using namespace clang::driver;
 using namespace clang;
 using namespace llvm::opt;
 
-static llvm::Triple computeTargetTriple(StringRef DefaultTargetTriple,
-                                        const ArgList &Args,
-                                        StringRef DarwinArchName);
-
 Driver::Driver(StringRef ClangExecutable,
                StringRef DefaultTargetTriple,
                DiagnosticsEngine &Diags)
@@ -145,14 +141,9 @@ InputArgList *Driver::ParseArgStrings(ArrayRef<const char *> ArgStrings) {
     }
   }
 
-  llvm::Triple Target = computeTargetTriple(DefaultTargetTriple, *Args, "");
-  const bool IsAndroid = Target.getEnvironment() == llvm::Triple::Android;
   for (arg_iterator it = Args->filtered_begin(options::OPT_UNKNOWN),
          ie = Args->filtered_end(); it != ie; ++it) {
-    if (IsAndroid)
-      Diags.Report(diag::warn_drv_unknown_argument) << (*it)->getAsString(*Args);
-    else
-      Diags.Report(diag::err_drv_unknown_argument) << (*it)->getAsString(*Args);
+    Diags.Report(diag::err_drv_unknown_argument) << (*it) ->getAsString(*Args);
   }
 
   return Args;
