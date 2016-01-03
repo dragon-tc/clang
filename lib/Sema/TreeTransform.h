@@ -1478,15 +1478,14 @@ public:
   ///
   /// By default, performs semantic analysis to build the new OpenMP clause.
   /// Subclasses may override this routine to provide different behavior.
-  OMPClause *RebuildOMPScheduleClause(OpenMPScheduleClauseKind Kind,
-                                      Expr *ChunkSize,
-                                      SourceLocation StartLoc,
-                                      SourceLocation LParenLoc,
-                                      SourceLocation KindLoc,
-                                      SourceLocation CommaLoc,
-                                      SourceLocation EndLoc) {
+  OMPClause *RebuildOMPScheduleClause(
+      OpenMPScheduleClauseModifier M1, OpenMPScheduleClauseModifier M2,
+      OpenMPScheduleClauseKind Kind, Expr *ChunkSize, SourceLocation StartLoc,
+      SourceLocation LParenLoc, SourceLocation M1Loc, SourceLocation M2Loc,
+      SourceLocation KindLoc, SourceLocation CommaLoc, SourceLocation EndLoc) {
     return getSema().ActOnOpenMPScheduleClause(
-        Kind, ChunkSize, StartLoc, LParenLoc, KindLoc, CommaLoc, EndLoc);
+        M1, M2, Kind, ChunkSize, StartLoc, LParenLoc, M1Loc, M2Loc, KindLoc,
+        CommaLoc, EndLoc);
   }
 
   /// \brief Build a new OpenMP 'ordered' clause.
@@ -7504,7 +7503,9 @@ TreeTransform<Derived>::TransformOMPScheduleClause(OMPScheduleClause *C) {
   if (E.isInvalid())
     return nullptr;
   return getDerived().RebuildOMPScheduleClause(
+      C->getFirstScheduleModifier(), C->getSecondScheduleModifier(),
       C->getScheduleKind(), E.get(), C->getLocStart(), C->getLParenLoc(),
+      C->getFirstScheduleModifierLoc(), C->getSecondScheduleModifierLoc(),
       C->getScheduleKindLoc(), C->getCommaLoc(), C->getLocEnd());
 }
 
@@ -8062,16 +8063,15 @@ TreeTransform<Derived>::TransformOffsetOfExpr(OffsetOfExpr *E) {
   // template code that we don't care.
   bool ExprChanged = false;
   typedef Sema::OffsetOfComponent Component;
-  typedef OffsetOfExpr::OffsetOfNode Node;
   SmallVector<Component, 4> Components;
   for (unsigned I = 0, N = E->getNumComponents(); I != N; ++I) {
-    const Node &ON = E->getComponent(I);
+    const OffsetOfNode &ON = E->getComponent(I);
     Component Comp;
     Comp.isBrackets = true;
     Comp.LocStart = ON.getSourceRange().getBegin();
     Comp.LocEnd = ON.getSourceRange().getEnd();
     switch (ON.getKind()) {
-    case Node::Array: {
+    case OffsetOfNode::Array: {
       Expr *FromIndex = E->getIndexExpr(ON.getArrayExprIndex());
       ExprResult Index = getDerived().TransformExpr(FromIndex);
       if (Index.isInvalid())
@@ -8083,8 +8083,8 @@ TreeTransform<Derived>::TransformOffsetOfExpr(OffsetOfExpr *E) {
       break;
     }
 
-    case Node::Field:
-    case Node::Identifier:
+    case OffsetOfNode::Field:
+    case OffsetOfNode::Identifier:
       Comp.isBrackets = false;
       Comp.U.IdentInfo = ON.getFieldName();
       if (!Comp.U.IdentInfo)
@@ -8092,7 +8092,7 @@ TreeTransform<Derived>::TransformOffsetOfExpr(OffsetOfExpr *E) {
 
       break;
 
-    case Node::Base:
+    case OffsetOfNode::Base:
       // Will be recomputed during the rebuild.
       continue;
     }

@@ -78,13 +78,24 @@ def g_flags_Group         : OptionGroup<"<g flags group>">;
 def i_Group               : OptionGroup<"<i group>">, Group<CompileOnly_Group>;
 def clang_i_Group         : OptionGroup<"<clang i group>">, Group<i_Group>;
 def m_Group               : OptionGroup<"<m group>">, Group<CompileOnly_Group>;
-def m_x86_Features_Group  : OptionGroup<"<m x86 features group>">, Group<m_Group>, Flags<[CoreOption]>;
-def m_hexagon_Features_Group  : OptionGroup<"<m hexagon features group>">, Group<m_Group>;
-def m_arm_Features_Group  : OptionGroup<"<m arm features group>">, Group<m_Group>;
-def m_aarch64_Features_Group  : OptionGroup<"<m aarch64 features group>">, Group<m_Group>;
-def m_ppc_Features_Group  : OptionGroup<"<m ppc features group>">, Group<m_Group>;
-def m_wasm_Features_Group : OptionGroup<"<m wasm features group>">,
-                                        Group<m_Group>;
+
+// Feature groups - these take command line options that correspond directly to
+// target specific features and can be translated directly from command line
+// options.
+def m_x86_Features_Group : OptionGroup<"<x86 features group>">,
+                           Group<m_Group>,
+                           Flags<[CoreOption]>;
+def m_hexagon_Features_Group : OptionGroup<"<hexagon features group>">,
+                               Group<m_Group>;
+def m_arm_Features_Group : OptionGroup<"<arm features group>">,
+                           Group<m_Group>;
+def m_aarch64_Features_Group : OptionGroup<"<aarch64 features group>">,
+                               Group<m_Group>;
+def m_ppc_Features_Group : OptionGroup<"<ppc features group>">,
+                           Group<m_Group>;
+def m_wasm_Features_Group : OptionGroup<"<wasm features group>">,
+                            Group<m_Group>;
+
 def m_libc_Group          : OptionGroup<"<m libc group>">, Group<m_Group>;
 def u_Group               : OptionGroup<"<u group>">;
 
@@ -1153,6 +1164,8 @@ def gdwarf_3 : Flag<["-"], "gdwarf-3">, Group<g_Group>,
   HelpText<"Generate source-level debug information with dwarf version 3">;
 def gdwarf_4 : Flag<["-"], "gdwarf-4">, Group<g_Group>,
   HelpText<"Generate source-level debug information with dwarf version 4">;
+def gdwarf_5 : Flag<["-"], "gdwarf-5">, Group<g_Group>,
+  HelpText<"Generate source-level debug information with dwarf version 5">;
 def gcodeview : Flag<["-"], "gcodeview">,
   HelpText<"Generate CodeView debug information">,
   Flags<[CC1Option, CC1AsOption, CoreOption]>;
@@ -1356,6 +1369,7 @@ def mno_xsave : Flag<["-"], "mno-xsave">, Group<m_x86_Features_Group>;
 def mno_xsaveopt : Flag<["-"], "mno-xsaveopt">, Group<m_x86_Features_Group>;
 def mno_xsavec : Flag<["-"], "mno-xsavec">, Group<m_x86_Features_Group>;
 def mno_xsaves : Flag<["-"], "mno-xsaves">, Group<m_x86_Features_Group>;
+def mno_pku : Flag<["-"], "mno-pku">, Group<m_x86_Features_Group>;
 
 def munaligned_access : Flag<["-"], "munaligned-access">, Group<m_arm_Features_Group>,
   HelpText<"Allow memory accesses to be unaligned (AArch32/AArch64 only)">;
@@ -1507,6 +1521,7 @@ def mf16c : Flag<["-"], "mf16c">, Group<m_x86_Features_Group>;
 def mrtm : Flag<["-"], "mrtm">, Group<m_x86_Features_Group>;
 def mprfchw : Flag<["-"], "mprfchw">, Group<m_x86_Features_Group>;
 def mrdseed : Flag<["-"], "mrdseed">, Group<m_x86_Features_Group>;
+def mpku : Flag<["-"], "mpku">, Group<m_x86_Features_Group>;
 def madx : Flag<["-"], "madx">, Group<m_x86_Features_Group>;
 def msha : Flag<["-"], "msha">, Group<m_x86_Features_Group>;
 def mcx16 : Flag<["-"], "mcx16">, Group<m_x86_Features_Group>;
