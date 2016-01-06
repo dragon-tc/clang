@@ -145,13 +145,13 @@ void clang::ProcessWarningOptions(DiagnosticsEngine &Diags,
         
         if (Specifier.empty()) {
           if (SetDiagnostic)
-            Diags.setWarningsAsErrors(false);
+            //Diags.setWarningsAsErrors(isPositive);
           continue;
         }
         
         if (SetDiagnostic) {
           // Set the warning as error flag for this specifier.
-          Diags.setDiagnosticGroupWarningAsError(Specifier, false);
+          //Diags.setDiagnosticGroupWarningAsError(Specifier, isPositive);
         } else if (DiagIDs->getDiagnosticsInGroup(Flavor, Specifier, _Diags)) {
           EmitUnknownDiagWarning(Diags, Flavor, "-Werror=", Specifier);
         }
