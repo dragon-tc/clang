@@ -128,7 +128,7 @@ void clang::ProcessWarningOptions(DiagnosticsEngine &Diags,
         }
         continue;
       }
-      
+     
       // -Werror/-Wno-error is a special case, not controlled by the option 
       // table. It also has the "specifier" form of -Werror=foo and -Werror-foo.
       if (Opt.startswith("error")) {
@@ -153,7 +153,7 @@ void clang::ProcessWarningOptions(DiagnosticsEngine &Diags,
           // Set the warning as error flag for this specifier.
           //Diags.setDiagnosticGroupWarningAsError(Specifier, isPositive);
         } else if (DiagIDs->getDiagnosticsInGroup(Flavor, Specifier, _Diags)) {
-          EmitUnknownDiagWarning(Diags, Flavor, "-Werror=", Specifier);
+          //EmitUnknownDiagWarning(Diags, Flavor, "-Werror=", Specifier);
         }
         continue;
       }
@@ -173,25 +173,25 @@ void clang::ProcessWarningOptions(DiagnosticsEngine &Diags,
 
         if (Specifier.empty()) {
           if (SetDiagnostic)
-            Diags.setErrorsAsFatal(isPositive);
+           // Diags.setErrorsAsFatal(isPositive);
           continue;
         }
         
         if (SetDiagnostic) {
           // Set the error as fatal flag for this specifier.
-          Diags.setDiagnosticGroupErrorAsFatal(Specifier, isPositive);
+          //Diags.setDiagnosticGroupErrorAsFatal(Specifier, isPositive);
         } else if (DiagIDs->getDiagnosticsInGroup(Flavor, Specifier, _Diags)) {
-          EmitUnknownDiagWarning(Diags, Flavor, "-Wfatal-errors=", Specifier);
+          //EmitUnknownDiagWarning(Diags, Flavor, "-Wfatal-errors=", Specifier);
         }
         continue;
       }
       
       if (Report) {
         if (DiagIDs->getDiagnosticsInGroup(Flavor, Opt, _Diags))
-          EmitUnknownDiagWarning(Diags, Flavor, isPositive ? "-W" : "-Wno-",
+          //EmitUnknownDiagWarning(Diags, Flavor, isPositive ? "-W" : "-Wno-",
                                  Opt);
       } else {
-        Diags.setSeverityForGroup(Flavor, Opt, Mapping);
+        //Diags.setSeverityForGroup(Flavor, Opt, Mapping);
       }
     }
 
