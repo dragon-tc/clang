@@ -190,7 +190,7 @@ void clang::ProcessWarningOptions(DiagnosticsEngine &Diags,
         if (DiagIDs->getDiagnosticsInGroup(Flavor, Opt, _Diags))
           //EmitUnknownDiagWarning(Diags, Flavor, isPositive ? "-W" : "-Wno-",
           //                       Opt);
-      } else {
+      //} else {
         //Diags.setSeverityForGroup(Flavor, Opt, Mapping);
       }
     }
