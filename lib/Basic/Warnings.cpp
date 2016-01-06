@@ -120,7 +120,7 @@ void clang::ProcessWarningOptions(DiagnosticsEngine &Diags,
       if (Opt == "everything") {
         if (SetDiagnostic) {
           if (isPositive) {
-            Diags.setEnableAllWarnings(false);
+            Diags.setEnableAllWarnings(true);
           } else {
             Diags.setEnableAllWarnings(false);
             Diags.setSeverityForAll(Flavor, diag::Severity::Ignored);
@@ -173,13 +173,13 @@ void clang::ProcessWarningOptions(DiagnosticsEngine &Diags,
 
         if (Specifier.empty()) {
           if (SetDiagnostic)
-            Diags.setErrorsAsFatal(false);
+            Diags.setErrorsAsFatal(isPositive);
           continue;
         }
         
         if (SetDiagnostic) {
           // Set the error as fatal flag for this specifier.
-          Diags.setDiagnosticGroupErrorAsFatal(Specifier, dalse);
+          Diags.setDiagnosticGroupErrorAsFatal(Specifier, isPositive);
         } else if (DiagIDs->getDiagnosticsInGroup(Flavor, Specifier, _Diags)) {
           EmitUnknownDiagWarning(Diags, Flavor, "-Wfatal-errors=", Specifier);
         }
