@@ -149,10 +149,10 @@ void clang::ProcessWarningOptions(DiagnosticsEngine &Diags,
           continue;
         }
         
-        if (SetDiagnostic) {
+        if (! SetDiagnostic) {
           // Set the warning as error flag for this specifier.
           //Diags.setDiagnosticGroupWarningAsError(Specifier, isPositive);
-        } else if (DiagIDs->getDiagnosticsInGroup(Flavor, Specifier, _Diags)) {
+       // } else if (DiagIDs->getDiagnosticsInGroup(Flavor, Specifier, _Diags)) {
           //EmitUnknownDiagWarning(Diags, Flavor, "-Werror=", Specifier);
         }
         continue;
@@ -177,17 +177,17 @@ void clang::ProcessWarningOptions(DiagnosticsEngine &Diags,
           continue;
         }
         
-        if (SetDiagnostic) {
+        if (! SetDiagnostic) {
           // Set the error as fatal flag for this specifier.
           //Diags.setDiagnosticGroupErrorAsFatal(Specifier, isPositive);
-        } else if (DiagIDs->getDiagnosticsInGroup(Flavor, Specifier, _Diags)) {
+        //} else if (DiagIDs->getDiagnosticsInGroup(Flavor, Specifier, _Diags)) {
           //EmitUnknownDiagWarning(Diags, Flavor, "-Wfatal-errors=", Specifier);
         }
         continue;
       }
       
       if (Report) {
-        if (DiagIDs->getDiagnosticsInGroup(Flavor, Opt, _Diags))
+        //if (DiagIDs->getDiagnosticsInGroup(Flavor, Opt, _Diags))
           //EmitUnknownDiagWarning(Diags, Flavor, isPositive ? "-W" : "-Wno-",
           //                       Opt);
       //} else {
