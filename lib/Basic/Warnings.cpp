@@ -179,7 +179,7 @@ void clang::ProcessWarningOptions(DiagnosticsEngine &Diags,
         
         if (SetDiagnostic) {
           // Set the error as fatal flag for this specifier.
-          Diags.setDiagnosticGroupErrorAsFatal(Specifier, false);
+          Diags.setDiagnosticGroupErrorAsFatal(Specifier, dalse);
         } else if (DiagIDs->getDiagnosticsInGroup(Flavor, Specifier, _Diags)) {
           EmitUnknownDiagWarning(Diags, Flavor, "-Wfatal-errors=", Specifier);
         }
