@@ -20,6 +20,26 @@
 using namespace clang;
 using namespace CodeGen;
 
+llvm::Value *CodeGenFunction::getTypeSize(QualType Ty) {
+  auto &C = getContext();
+  llvm::Value *Size = nullptr;
+  auto SizeInChars = C.getTypeSizeInChars(Ty);
+  if (SizeInChars.isZero()) {
+    // getTypeSizeInChars() returns 0 for a VLA.
+    while (auto *VAT = C.getAsVariableArrayType(Ty)) {
+      llvm::Value *ArraySize;
+      std::tie(ArraySize, Ty) = getVLASize(VAT);
+      Size = Size ? Builder.CreateNUWMul(Size, ArraySize) : ArraySize;
+    }
+    SizeInChars = C.getTypeSizeInChars(Ty);
+    if (SizeInChars.isZero())
+      return llvm::ConstantInt::get(SizeTy, /*V=*/0);
+    Size = Builder.CreateNUWMul(Size, CGM.getSize(SizeInChars));
+  } else
+    Size = CGM.getSize(SizeInChars);
+  return Size;
+}
+
 void CodeGenFunction::GenerateOpenMPCapturedVars(
     const CapturedStmt &S, SmallVectorImpl<llvm::Value *> &CapturedVars) {
   const RecordDecl *RD = S.getCapturedRecordDecl();
@@ -652,6 +672,54 @@ void CodeGenFunction::EmitOMPLastprivateClauseFinal(
   }
 }
 
+static Address castToBase(CodeGenFunction &CGF, QualType BaseTy, QualType ElTy,
+                          LValue BaseLV, llvm::Value *Addr) {
+  Address Tmp = Address::invalid();
+  Address TopTmp = Address::invalid();
+  Address MostTopTmp = Address::invalid();
+  BaseTy = BaseTy.getNonReferenceType();
+  while ((BaseTy->isPointerType() || BaseTy->isReferenceType()) &&
+         !CGF.getContext().hasSameType(BaseTy, ElTy)) {
+    Tmp = CGF.CreateMemTemp(BaseTy);
+    if (TopTmp.isValid())
+      CGF.Builder.CreateStore(Tmp.getPointer(), TopTmp);
+    else
+      MostTopTmp = Tmp;
+    TopTmp = Tmp;
+    BaseTy = BaseTy->getPointeeType();
+  }
+  llvm::Type *Ty = BaseLV.getPointer()->getType();
+  if (Tmp.isValid())
+    Ty = Tmp.getElementType();
+  Addr = CGF.Builder.CreatePointerBitCastOrAddrSpaceCast(Addr, Ty);
+  if (Tmp.isValid()) {
+    CGF.Builder.CreateStore(Addr, Tmp);
+    return MostTopTmp;
+  }
+  return Address(Addr, BaseLV.getAlignment());
+}
+
+static LValue loadToBegin(CodeGenFunction &CGF, QualType BaseTy, QualType ElTy,
+                          LValue BaseLV) {
+  BaseTy = BaseTy.getNonReferenceType();
+  while ((BaseTy->isPointerType() || BaseTy->isReferenceType()) &&
+         !CGF.getContext().hasSameType(BaseTy, ElTy)) {
+    if (auto *PtrTy = BaseTy->getAs<PointerType>())
+      BaseLV = CGF.EmitLoadOfPointerLValue(BaseLV.getAddress(), PtrTy);
+    else {
+      BaseLV = CGF.EmitLoadOfReferenceLValue(BaseLV.getAddress(),
+                                             BaseTy->castAs<ReferenceType>());
+    }
+    BaseTy = BaseTy->getPointeeType();
+  }
+  return CGF.MakeAddrLValue(
+      Address(
+          CGF.Builder.CreatePointerBitCastOrAddrSpaceCast(
+              BaseLV.getPointer(), CGF.ConvertTypeForMem(ElTy)->getPointerTo()),
+          BaseLV.getAlignment()),
+      BaseLV.getType(), BaseLV.getAlignmentSource());
+}
+
 void CodeGenFunction::EmitOMPReductionClauseInit(
     const OMPExecutableDirective &D,
     CodeGenFunction::OMPPrivateScope &PrivateScope) {
@@ -677,21 +745,9 @@ void CodeGenFunction::EmitOMPReductionClauseInit(
         auto OASELValueUB =
             EmitOMPArraySectionExpr(OASE, /*IsLowerBound=*/false);
         auto OriginalBaseLValue = EmitLValue(DE);
-        auto BaseLValue = OriginalBaseLValue;
-        auto *Zero = Builder.getInt64(/*C=*/0);
-        llvm::SmallVector<llvm::Value *, 4> Indexes;
-        Indexes.push_back(Zero);
-        auto *ItemTy =
-            OASELValueLB.getPointer()->getType()->getPointerElementType();
-        auto *Ty = BaseLValue.getPointer()->getType()->getPointerElementType();
-        while (Ty != ItemTy) {
-          Indexes.push_back(Zero);
-          Ty = Ty->getPointerElementType();
-        }
-        BaseLValue = MakeAddrLValue(
-            Address(Builder.CreateInBoundsGEP(BaseLValue.getPointer(), Indexes),
-                    OASELValueLB.getAlignment()),
-            OASELValueLB.getType(), OASELValueLB.getAlignmentSource());
+        LValue BaseLValue =
+            loadToBegin(*this, OrigVD->getType(), OASELValueLB.getType(),
+                        OriginalBaseLValue);
         // Store the address of the original variable associated with the LHS
         // implicit variable.
         PrivateScope.addPrivate(LHSVD, [this, OASELValueLB]() -> Address {
@@ -699,8 +755,8 @@ void CodeGenFunction::EmitOMPReductionClauseInit(
         });
         // Emit reduction copy.
         bool IsRegistered = PrivateScope.addPrivate(
-            OrigVD, [this, PrivateVD, BaseLValue, OASELValueLB, OASELValueUB,
-                     OriginalBaseLValue]() -> Address {
+            OrigVD, [this, OrigVD, PrivateVD, BaseLValue, OASELValueLB,
+                     OASELValueUB, OriginalBaseLValue]() -> Address {
               // Emit VarDecl with copy init for arrays.
               // Get the address of the original variable captured in current
               // captured region.
@@ -724,9 +780,9 @@ void CodeGenFunction::EmitOMPReductionClauseInit(
               auto *Offset = Builder.CreatePtrDiff(BaseLValue.getPointer(),
                                                    OASELValueLB.getPointer());
               auto *Ptr = Builder.CreateGEP(Addr.getPointer(), Offset);
-              Ptr = Builder.CreatePointerBitCastOrAddrSpaceCast(
-                  Ptr, OriginalBaseLValue.getPointer()->getType());
-              return Address(Ptr, OriginalBaseLValue.getAlignment());
+              return castToBase(*this, OrigVD->getType(),
+                                OASELValueLB.getType(), OriginalBaseLValue,
+                                Ptr);
             });
         assert(IsRegistered && "private var already registered as private");
         // Silence the warning about unused variable.
@@ -742,21 +798,8 @@ void CodeGenFunction::EmitOMPReductionClauseInit(
         auto *OrigVD = cast<VarDecl>(DE->getDecl());
         auto ASELValue = EmitLValue(ASE);
         auto OriginalBaseLValue = EmitLValue(DE);
-        auto BaseLValue = OriginalBaseLValue;
-        auto *Zero = Builder.getInt64(/*C=*/0);
-        llvm::SmallVector<llvm::Value *, 4> Indexes;
-        Indexes.push_back(Zero);
-        auto *ItemTy =
-            ASELValue.getPointer()->getType()->getPointerElementType();
-        auto *Ty = BaseLValue.getPointer()->getType()->getPointerElementType();
-        while (Ty != ItemTy) {
-          Indexes.push_back(Zero);
-          Ty = Ty->getPointerElementType();
-        }
-        BaseLValue = MakeAddrLValue(
-            Address(Builder.CreateInBoundsGEP(BaseLValue.getPointer(), Indexes),
-                    ASELValue.getAlignment()),
-            ASELValue.getType(), ASELValue.getAlignmentSource());
+        LValue BaseLValue = loadToBegin(
+            *this, OrigVD->getType(), ASELValue.getType(), OriginalBaseLValue);
         // Store the address of the original variable associated with the LHS
         // implicit variable.
         PrivateScope.addPrivate(LHSVD, [this, ASELValue]() -> Address {
@@ -764,7 +807,7 @@ void CodeGenFunction::EmitOMPReductionClauseInit(
         });
         // Emit reduction copy.
         bool IsRegistered = PrivateScope.addPrivate(
-            OrigVD, [this, PrivateVD, BaseLValue, ASELValue,
+            OrigVD, [this, OrigVD, PrivateVD, BaseLValue, ASELValue,
                      OriginalBaseLValue]() -> Address {
               // Emit private VarDecl with reduction init.
               EmitDecl(*PrivateVD);
@@ -772,39 +815,82 @@ void CodeGenFunction::EmitOMPReductionClauseInit(
               auto *Offset = Builder.CreatePtrDiff(BaseLValue.getPointer(),
                                                    ASELValue.getPointer());
               auto *Ptr = Builder.CreateGEP(Addr.getPointer(), Offset);
-              Ptr = Builder.CreatePointerBitCastOrAddrSpaceCast(
-                  Ptr, OriginalBaseLValue.getPointer()->getType());
-              return Address(Ptr, OriginalBaseLValue.getAlignment());
+              return castToBase(*this, OrigVD->getType(), ASELValue.getType(),
+                                OriginalBaseLValue, Ptr);
             });
         assert(IsRegistered && "private var already registered as private");
         // Silence the warning about unused variable.
         (void)IsRegistered;
-        PrivateScope.addPrivate(RHSVD, [this, PrivateVD]() -> Address {
-          return GetAddrOfLocalVar(PrivateVD);
+        PrivateScope.addPrivate(RHSVD, [this, PrivateVD, RHSVD]() -> Address {
+          return Builder.CreateElementBitCast(
+              GetAddrOfLocalVar(PrivateVD), ConvertTypeForMem(RHSVD->getType()),
+              "rhs.begin");
         });
       } else {
         auto *OrigVD = cast<VarDecl>(cast<DeclRefExpr>(IRef)->getDecl());
-        // Store the address of the original variable associated with the LHS
-        // implicit variable.
-        PrivateScope.addPrivate(LHSVD, [this, OrigVD, IRef]() -> Address {
+        QualType Type = PrivateVD->getType();
+        if (getContext().getAsArrayType(Type)) {
+          // Store the address of the original variable associated with the LHS
+          // implicit variable.
           DeclRefExpr DRE(const_cast<VarDecl *>(OrigVD),
                           CapturedStmtInfo->lookup(OrigVD) != nullptr,
                           IRef->getType(), VK_LValue, IRef->getExprLoc());
-          return EmitLValue(&DRE).getAddress();
-        });
-        // Emit reduction copy.
-        bool IsRegistered =
-            PrivateScope.addPrivate(OrigVD, [this, PrivateVD]() -> Address {
-              // Emit private VarDecl with reduction init.
-              EmitDecl(*PrivateVD);
-              return GetAddrOfLocalVar(PrivateVD);
-            });
-        assert(IsRegistered && "private var already registered as private");
-        // Silence the warning about unused variable.
-        (void)IsRegistered;
-        PrivateScope.addPrivate(RHSVD, [this, PrivateVD]() -> Address {
-          return GetAddrOfLocalVar(PrivateVD);
-        });
+          Address OriginalAddr = EmitLValue(&DRE).getAddress();
+          PrivateScope.addPrivate(LHSVD, [this, OriginalAddr,
+                                          LHSVD]() -> Address {
+            return Builder.CreateElementBitCast(
+                OriginalAddr, ConvertTypeForMem(LHSVD->getType()),
+                "lhs.begin");
+          });
+          bool IsRegistered = PrivateScope.addPrivate(OrigVD, [&]() -> Address {
+            if (Type->isVariablyModifiedType()) {
+              CodeGenFunction::OpaqueValueMapping OpaqueMap(
+                  *this, cast<OpaqueValueExpr>(
+                             getContext()
+                                 .getAsVariableArrayType(PrivateVD->getType())
+                                 ->getSizeExpr()),
+                  RValue::get(
+                      getTypeSize(OrigVD->getType().getNonReferenceType())));
+              EmitVariablyModifiedType(Type);
+            }
+            auto Emission = EmitAutoVarAlloca(*PrivateVD);
+            auto Addr = Emission.getAllocatedAddress();
+            auto *Init = PrivateVD->getInit();
+            EmitOMPAggregateInit(*this, Addr, PrivateVD->getType(), Init);
+            EmitAutoVarCleanups(Emission);
+            return Emission.getAllocatedAddress();
+          });
+          assert(IsRegistered && "private var already registered as private");
+          // Silence the warning about unused variable.
+          (void)IsRegistered;
+          PrivateScope.addPrivate(RHSVD, [this, PrivateVD, RHSVD]() -> Address {
+            return Builder.CreateElementBitCast(
+                GetAddrOfLocalVar(PrivateVD),
+                ConvertTypeForMem(RHSVD->getType()), "rhs.begin");
+          });
+        } else {
+          // Store the address of the original variable associated with the LHS
+          // implicit variable.
+          PrivateScope.addPrivate(LHSVD, [this, OrigVD, IRef]() -> Address {
+            DeclRefExpr DRE(const_cast<VarDecl *>(OrigVD),
+                            CapturedStmtInfo->lookup(OrigVD) != nullptr,
+                            IRef->getType(), VK_LValue, IRef->getExprLoc());
+            return EmitLValue(&DRE).getAddress();
+          });
+          // Emit reduction copy.
+          bool IsRegistered =
+              PrivateScope.addPrivate(OrigVD, [this, PrivateVD]() -> Address {
+                // Emit private VarDecl with reduction init.
+                EmitDecl(*PrivateVD);
+                return GetAddrOfLocalVar(PrivateVD);
+              });
+          assert(IsRegistered && "private var already registered as private");
+          // Silence the warning about unused variable.
+          (void)IsRegistered;
+          PrivateScope.addPrivate(RHSVD, [this, PrivateVD]() -> Address {
+            return GetAddrOfLocalVar(PrivateVD);
+          });
+        }
       }
       ++ILHS, ++IRHS, ++IPriv;
     }
@@ -1449,16 +1535,10 @@ emitScheduleClause(CodeGenFunction &CGF, const OMPLoopDirective &S,
     M2 = C->getSecondScheduleModifier();
     if (const auto *Ch = C->getChunkSize()) {
       if (auto *ImpRef = cast_or_null<DeclRefExpr>(C->getHelperChunkSize())) {
-        if (OuterRegion) {
-          const VarDecl *ImpVar = cast<VarDecl>(ImpRef->getDecl());
-          CGF.EmitVarDecl(*ImpVar);
-          CGF.EmitStoreThroughLValue(
-              CGF.EmitAnyExpr(Ch),
-              CGF.MakeAddrLValue(CGF.GetAddrOfLocalVar(ImpVar),
-                                 ImpVar->getType()));
-        } else {
+        if (OuterRegion)
+          CGF.EmitVarDecl(*cast<VarDecl>(ImpRef->getDecl()));
+        else
           Ch = ImpRef;
-        }
       }
       if (!C->getHelperChunkSize() || !OuterRegion) {
         Chunk = CGF.EmitScalarExpr(Ch);
@@ -2500,6 +2580,7 @@ static void EmitOMPAtomicExpr(CodeGenFunction &CGF, OpenMPClauseKind Kind,
   case OMPC_num_tasks:
   case OMPC_hint:
   case OMPC_dist_schedule:
+  case OMPC_defaultmap:
     llvm_unreachable("Clause is not allowed in 'omp atomic'.");
   }
 }
@@ -2643,6 +2724,16 @@ void CodeGenFunction::EmitOMPTargetEnterDataDirective(
 void CodeGenFunction::EmitOMPTargetExitDataDirective(
     const OMPTargetExitDataDirective &S) {
   // TODO: codegen for target exit data.
+}
+
+void CodeGenFunction::EmitOMPTargetParallelDirective(
+    const OMPTargetParallelDirective &S) {
+  // TODO: codegen for target parallel.
+}
+
+void CodeGenFunction::EmitOMPTargetParallelForDirective(
+    const OMPTargetParallelForDirective &S) {
+  // TODO: codegen for target parallel for.
 }
 
 void CodeGenFunction::EmitOMPTaskLoopDirective(const OMPTaskLoopDirective &S) {

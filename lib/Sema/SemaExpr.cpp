@@ -2874,6 +2874,7 @@ ExprResult Sema::BuildDeclarationNameExpr(
     case Decl::Var:
     case Decl::VarTemplateSpecialization:
     case Decl::VarTemplatePartialSpecialization:
+    case Decl::OMPCapturedExpr:
       // In C, "extern void blah;" is valid and is an r-value.
       if (!getLangOpts().CPlusPlus &&
           !type.hasQualifiers() &&
@@ -3887,14 +3888,24 @@ Sema::CreateUnaryExprOrTypeTraitExpr(TypeSourceInfo *TInfo,
 
   if (T->isVariablyModifiedType() && FunctionScopes.size() > 1) {
     if (auto *TT = T->getAs<TypedefType>()) {
-      if (auto *CSI = dyn_cast<CapturingScopeInfo>(FunctionScopes.back())) {
+      for (auto I = FunctionScopes.rbegin(),
+                E = std::prev(FunctionScopes.rend());
+           I != E; ++I) {
+        auto *CSI = dyn_cast<CapturingScopeInfo>(*I);
+        if (CSI == nullptr)
+          break;
         DeclContext *DC = nullptr;
-        if (auto LSI = dyn_cast<LambdaScopeInfo>(CSI))
+        if (auto *LSI = dyn_cast<LambdaScopeInfo>(CSI))
           DC = LSI->CallOperator;
-        else if (auto CRSI = dyn_cast<CapturedRegionScopeInfo>(CSI))
+        else if (auto *CRSI = dyn_cast<CapturedRegionScopeInfo>(CSI))
           DC = CRSI->TheCapturedDecl;
-        if (DC && TT->getDecl()->getDeclContext() != DC)
+        else if (auto *BSI = dyn_cast<BlockScopeInfo>(CSI))
+          DC = BSI->TheDecl;
+        if (DC) {
+          if (DC->containsDecl(TT->getDecl()))
+            break;
           captureVariablyModifiedType(Context, T, CSI);
+        }
       }
     }
   }
@@ -4138,10 +4149,16 @@ ExprResult Sema::ActOnOMPArraySectionExpr(Expr *Base, SourceLocation LBLoc,
     ExprResult Result = CheckPlaceholderExpr(LowerBound);
     if (Result.isInvalid())
       return ExprError();
+    Result = DefaultLvalueConversion(Result.get());
+    if (Result.isInvalid())
+      return ExprError();
     LowerBound = Result.get();
   }
   if (Length && Length->getType()->isNonOverloadPlaceholderType()) {
     ExprResult Result = CheckPlaceholderExpr(Length);
+    if (Result.isInvalid())
+      return ExprError();
+    Result = DefaultLvalueConversion(Result.get());
     if (Result.isInvalid())
       return ExprError();
     Length = Result.get();
@@ -4250,6 +4267,13 @@ ExprResult Sema::ActOnOMPArraySectionExpr(Expr *Base, SourceLocation LBLoc,
     return ExprError();
   }
 
+  if (!Base->getType()->isSpecificPlaceholderType(
+          BuiltinType::OMPArraySection)) {
+    ExprResult Result = DefaultFunctionArrayLvalueConversion(Base);
+    if (Result.isInvalid())
+      return ExprError();
+    Base = Result.get();
+  }
   return new (Context)
       OMPArraySectionExpr(Base, LowerBound, Length, Context.OMPArraySectionTy,
                           VK_LValue, OK_Ordinary, ColonLoc, RBLoc);
@@ -7542,13 +7566,24 @@ Sema::CheckSingleAssignmentConstraints(QualType LHSType, ExprResult &CallerRHS,
   if (result != Incompatible && RHS.get()->getType() != LHSType) {
     QualType Ty = LHSType.getNonLValueExprType(Context);
     Expr *E = RHS.get();
-    if (getLangOpts().ObjCAutoRefCount)
-      CheckObjCARCConversion(SourceRange(), Ty, E, CCK_ImplicitConversion,
-                             Diagnose, DiagnoseCFAudited);
+
+    // Check for various Objective-C errors. If we are not reporting
+    // diagnostics and just checking for errors, e.g., during overload
+    // resolution, return Incompatible to indicate the failure.
+    if (getLangOpts().ObjCAutoRefCount &&
+        CheckObjCARCConversion(SourceRange(), Ty, E, CCK_ImplicitConversion,
+                               Diagnose, DiagnoseCFAudited) != ACR_okay) {
+      if (!Diagnose)
+        return Incompatible;
+    }
     if (getLangOpts().ObjC1 &&
         (CheckObjCBridgeRelatedConversions(E->getLocStart(), LHSType,
                                            E->getType(), E, Diagnose) ||
          ConversionToObjCStringLiteralCheck(LHSType, E, Diagnose))) {
+      if (!Diagnose)
+        return Incompatible;
+      // Replace the expression with a corrected version and continue so we
+      // can find further errors.
       RHS = E;
       return Compatible;
     }
@@ -12011,10 +12046,11 @@ bool Sema::ConversionToObjCStringLiteralCheck(QualType DstType, Expr *&Exp,
   StringLiteral *SL = dyn_cast<StringLiteral>(SrcExpr);
   if (!SL || !SL->isAscii())
     return false;
-  if (Diagnose)
+  if (Diagnose) {
     Diag(SL->getLocStart(), diag::err_missing_atsign_prefix)
       << FixItHint::CreateInsertion(SL->getLocStart(), "@");
-  Exp = BuildObjCStringLiteral(SL->getLocStart(), SL).get();
+    Exp = BuildObjCStringLiteral(SL->getLocStart(), SL).get();
+  }
   return true;
 }
 
@@ -14468,6 +14504,12 @@ ExprResult RebuildUnknownAnyExpr::resolveDecl(Expr *E, ValueDecl *VD) {
 ExprResult Sema::checkUnknownAnyCast(SourceRange TypeRange, QualType CastType,
                                      Expr *CastExpr, CastKind &CastKind,
                                      ExprValueKind &VK, CXXCastPath &Path) {
+  // The type we're casting to must be either void or complete.
+  if (!CastType->isVoidType() &&
+      RequireCompleteType(TypeRange.getBegin(), CastType,
+                          diag::err_typecheck_cast_to_incomplete))
+    return ExprError();
+
   // Rewrite the casted expression from scratch.
   ExprResult result = RebuildUnknownAnyExpr(*this, CastType).Visit(CastExpr);
   if (!result.isUsable()) return ExprError();
