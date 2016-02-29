@@ -3245,6 +3245,22 @@ void Sema::mergeObjCMethodDecls(ObjCMethodDecl *newMethod,
   CheckObjCMethodOverride(newMethod, oldMethod);
 }
 
+static void diagnoseVarDeclTypeMismatch(Sema &S, VarDecl *New, VarDecl* Old) {
+  assert(!S.Context.hasSameType(New->getType(), Old->getType()));
+
+  S.Diag(New->getLocation(), New->isThisDeclarationADefinition()
+         ? diag::err_redefinition_different_type
+         : diag::err_redeclaration_different_type)
+    << New->getDeclName() << New->getType() << Old->getType();
+
+  diag::kind PrevDiag;
+  SourceLocation OldLocation;
+  std::tie(PrevDiag, OldLocation)
+    = getNoteDiagForInvalidRedeclaration(Old, New);
+  S.Diag(OldLocation, PrevDiag);
+  New->setInvalidDecl();
+}
+
 /// MergeVarDeclTypes - We parsed a variable 'New' which has the same name and
 /// scope as a previous declaration 'Old'.  Figure out how to merge their types,
 /// emitting diagnostics as appropriate.
@@ -3271,21 +3287,40 @@ void Sema::MergeVarDeclTypes(VarDecl *New, VarDecl *Old,
     //   object or function shall be identical, except that declarations for an
     //   array object can specify array types that differ by the presence or
     //   absence of a major array bound (8.3.4).
-    else if (Old->getType()->isIncompleteArrayType() &&
-             New->getType()->isArrayType()) {
+    else if (Old->getType()->isArrayType() && New->getType()->isArrayType()) {
       const ArrayType *OldArray = Context.getAsArrayType(Old->getType());
       const ArrayType *NewArray = Context.getAsArrayType(New->getType());
-      if (Context.hasSameType(OldArray->getElementType(),
-                              NewArray->getElementType()))
-        MergedT = New->getType();
-    } else if (Old->getType()->isArrayType() &&
-               New->getType()->isIncompleteArrayType()) {
-      const ArrayType *OldArray = Context.getAsArrayType(Old->getType());
-      const ArrayType *NewArray = Context.getAsArrayType(New->getType());
-      if (Context.hasSameType(OldArray->getElementType(),
-                              NewArray->getElementType()))
-        MergedT = Old->getType();
-    } else if (New->getType()->isObjCObjectPointerType() &&
+
+      // We are merging a variable declaration New into Old. If it has an array
+      // bound, and that bound differs from Old's bound, we should diagnose the
+      // mismatch.
+      if (!NewArray->isIncompleteArrayType()) {
+        for (VarDecl *PrevVD = Old->getMostRecentDecl(); PrevVD;
+             PrevVD = PrevVD->getPreviousDecl()) {
+          const ArrayType *PrevVDTy = Context.getAsArrayType(PrevVD->getType());
+          if (PrevVDTy->isIncompleteArrayType())
+            continue;
+
+          if (!Context.hasSameType(NewArray, PrevVDTy))
+            return diagnoseVarDeclTypeMismatch(*this, New, PrevVD);
+        }
+      }
+
+      if (OldArray->isIncompleteArrayType() && NewArray->isArrayType()) {
+        if (Context.hasSameType(OldArray->getElementType(),
+                                NewArray->getElementType()))
+          MergedT = New->getType();
+      }
+      // FIXME: Check visibility. New is hidden but has a complete type. If New
+      // has no array bound, it should not inherit one from Old, if Old is not
+      // visible.
+      else if (OldArray->isArrayType() && NewArray->isIncompleteArrayType()) {
+        if (Context.hasSameType(OldArray->getElementType(),
+                                NewArray->getElementType()))
+          MergedT = Old->getType();
+      }
+    }
+    else if (New->getType()->isObjCObjectPointerType() &&
                Old->getType()->isObjCObjectPointerType()) {
       MergedT = Context.mergeObjCGCQualifiers(New->getType(),
                                               Old->getType());
@@ -3311,27 +3346,7 @@ void Sema::MergeVarDeclTypes(VarDecl *New, VarDecl *Old,
         New->setType(Context.DependentTy);
       return;
     }
-
-    // FIXME: Even if this merging succeeds, some other non-visible declaration
-    // of this variable might have an incompatible type. For instance:
-    //
-    //   extern int arr[];
-    //   void f() { extern int arr[2]; }
-    //   void g() { extern int arr[3]; }
-    //
-    // Neither C nor C++ requires a diagnostic for this, but we should still try
-    // to diagnose it.
-    Diag(New->getLocation(), New->isThisDeclarationADefinition()
-                                 ? diag::err_redefinition_different_type
-                                 : diag::err_redeclaration_different_type)
-        << New->getDeclName() << New->getType() << Old->getType();
-
-    diag::kind PrevDiag;
-    SourceLocation OldLocation;
-    std::tie(PrevDiag, OldLocation) =
-        getNoteDiagForInvalidRedeclaration(Old, New);
-    Diag(OldLocation, PrevDiag);
-    return New->setInvalidDecl();
+    return diagnoseVarDeclTypeMismatch(*this, New, Old);
   }
 
   // Don't actually update the type on the new declaration if the old
@@ -5710,6 +5725,17 @@ Sema::ActOnVariableDeclarator(Scope *S, Declarator &D, DeclContext *DC,
   QualType R = TInfo->getType();
   DeclarationName Name = GetNameForDeclarator(D).getName();
 
+  // OpenCL v2.0 s6.9.b - Image type can only be used as a function argument.
+  // OpenCL v2.0 s6.13.16.1 - Pipe type can only be used as a function
+  // argument.
+  if (getLangOpts().OpenCL && (R->isImageType() || R->isPipeType())) {
+    Diag(D.getIdentifierLoc(),
+         diag::err_opencl_type_can_only_be_used_as_function_parameter)
+        << R;
+    D.setInvalidType();
+    return nullptr;
+  }
+
   DeclSpec::SCS SCSpec = D.getDeclSpec().getStorageClassSpec();
   StorageClass SC = StorageClassSpecToVarDeclStorageClass(D.getDeclSpec());
 
@@ -6707,6 +6733,19 @@ void Sema::CheckVariableDeclarationType(VarDecl *NewVD) {
                          diag::err_constexpr_var_non_literal)) {
     NewVD->setInvalidDecl();
     return;
+  }
+
+  // OpenCL v2.0 s6.12.5 - Blocks with variadic arguments are not supported.
+  if (LangOpts.OpenCL && T->isBlockPointerType()) {
+    const BlockPointerType *BlkTy = T->getAs<BlockPointerType>();
+    const FunctionProtoType *FTy =
+        BlkTy->getPointeeType()->getAs<FunctionProtoType>();
+    if (FTy->isVariadic()) {
+      Diag(NewVD->getLocation(), diag::err_opencl_block_proto_variadic)
+          << T << NewVD->getSourceRange();
+      NewVD->setInvalidDecl();
+      return;
+    }
   }
 }
 
@@ -10724,7 +10763,17 @@ ParmVarDecl *Sema::CheckParameter(DeclContext *DC, SourceLocation StartLoc,
       Diag(NameLoc, diag::err_arg_with_address_space);
       New->setInvalidDecl();
     }
-  }   
+  }
+
+  // OpenCL v2.0 s6.9b - Pointer to image/sampler cannot be used.
+  // OpenCL v2.0 s6.13.16.1 - Pointer to pipe cannot be used.
+  if (getLangOpts().OpenCL && T->isPointerType()) {
+    const QualType PTy = T->getPointeeType();
+    if (PTy->isImageType() || PTy->isSamplerT() || PTy->isPipeType()) {
+      Diag(NameLoc, diag::err_opencl_pointer_to_type) << PTy;
+      New->setInvalidDecl();
+    }
+  }
 
   return New;
 }
@@ -11586,8 +11635,11 @@ void Sema::AddKnownFunctionAttributes(FunctionDecl *FD) {
   // throw, add an implicit nothrow attribute to any extern "C" function we come
   // across.
   if (getLangOpts().CXXExceptions && getLangOpts().ExternCNoUnwind &&
-      FD->isExternC() && !FD->hasAttr<NoThrowAttr>())
-    FD->addAttr(NoThrowAttr::CreateImplicit(Context, FD->getLocation()));
+      FD->isExternC() && !FD->hasAttr<NoThrowAttr>()) {
+    const auto *FPT = FD->getType()->getAs<FunctionProtoType>();
+    if (!FPT || FPT->getExceptionSpecType() == EST_None)
+      FD->addAttr(NoThrowAttr::CreateImplicit(Context, FD->getLocation()));
+  }
 
   IdentifierInfo *Name = FD->getIdentifier();
   if (!Name)

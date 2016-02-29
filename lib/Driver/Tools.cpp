@@ -2124,11 +2124,14 @@ static bool DecodeAArch64Mcpu(const Driver &D, StringRef Mcpu, StringRef &CPU,
                               std::vector<const char *> &Features) {
   std::pair<StringRef, StringRef> Split = Mcpu.split("+");
   CPU = Split.first;
-  if (CPU == "cyclone" || CPU == "cortex-a53" || CPU == "cortex-a57" ||
+  if (CPU == "cortex-a53" || CPU == "cortex-a57" ||
       CPU == "cortex-a72" || CPU == "cortex-a35" || CPU == "exynos-m1" ||
       CPU == "kryo") {
     Features.push_back("+neon");
     Features.push_back("+crc");
+    Features.push_back("+crypto");
+  } else if (CPU == "cyclone") {
+    Features.push_back("+neon");
     Features.push_back("+crypto");
   } else if (CPU == "generic") {
     Features.push_back("+neon");
@@ -2952,6 +2955,8 @@ static bool shouldUseFramePointerForTarget(const ArgList &Args,
     switch (Triple.getArch()) {
     case llvm::Triple::x86:
       return !areOptimizationsEnabled(Args);
+    case llvm::Triple::x86_64:
+      return Triple.isOSBinFormatMachO();
     case llvm::Triple::arm:
     case llvm::Triple::thumb:
       // Windows on ARM builds with FPO disabled to aid fast stack walking
@@ -4114,8 +4119,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   bool EmitCodeView = false;
 
   // Add clang-cl arguments.
+  types::ID InputType = Input.getType();
   if (getToolChain().getDriver().IsCLMode())
-    AddClangCLArgs(Args, CmdArgs, &DebugInfoKind, &EmitCodeView);
+    AddClangCLArgs(Args, InputType, CmdArgs, &DebugInfoKind, &EmitCodeView);
 
   // Pass the linker version in use.
   if (Arg *A = Args.getLastArg(options::OPT_mlinker_version_EQ)) {
@@ -4128,7 +4134,6 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
   // Explicitly error on some things we know we don't support and can't just
   // ignore.
-  types::ID InputType = Input.getType();
   if (!Args.hasArg(options::OPT_fallow_unsupported)) {
     Arg *Unsupported;
     if (types::isCXX(InputType) && getToolChain().getTriple().isOSDarwin() &&
@@ -4265,6 +4270,32 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   if (Args.hasFlag(options::OPT_ffunction_sections,
                    options::OPT_fno_function_sections, UseSeparateSections)) {
     CmdArgs.push_back("-ffunction-sections");
+  }
+
+  if (Args.hasFlag(options::OPT_fwhole_program_vtables,
+                   options::OPT_fno_whole_program_vtables, false)) {
+    if (!D.isUsingLTO())
+      D.Diag(diag::err_drv_argument_only_allowed_with)
+          << "-fwhole-program-vtables"
+          << "-flto";
+    CmdArgs.push_back("-fwhole-program-vtables");
+
+    clang::SmallString<64> Path(D.ResourceDir);
+    llvm::sys::path::append(Path, "vtables_blacklist.txt");
+    if (llvm::sys::fs::exists(Path)) {
+      SmallString<64> BlacklistOpt("-fwhole-program-vtables-blacklist=");
+      BlacklistOpt += Path.str();
+      CmdArgs.push_back(Args.MakeArgString(BlacklistOpt));
+    }
+
+    for (const Arg *A :
+         Args.filtered(options::OPT_fwhole_program_vtables_blacklist_EQ)) {
+      A->claim();
+      if (!llvm::sys::fs::exists(A->getValue()))
+        D.Diag(clang::diag::err_drv_no_such_file) << A->getValue();
+    }
+
+    Args.AddAllArgs(CmdArgs, options::OPT_fwhole_program_vtables_blacklist_EQ);
   }
 
   if (Args.hasFlag(options::OPT_fdata_sections, options::OPT_fno_data_sections,
@@ -5798,12 +5829,16 @@ static EHFlags parseClangCLEHFlags(const Driver &D, const ArgList &Args) {
       switch (EHVal[I]) {
       case 'a':
         EH.Asynch = maybeConsumeDash(EHVal, I);
+        if (EH.Asynch)
+          EH.Synch = false;
         continue;
       case 'c':
         EH.NoUnwindC = maybeConsumeDash(EHVal, I);
         continue;
       case 's':
         EH.Synch = maybeConsumeDash(EHVal, I);
+        if (EH.Synch)
+          EH.Asynch = false;
         continue;
       default:
         break;
@@ -5824,7 +5859,8 @@ static EHFlags parseClangCLEHFlags(const Driver &D, const ArgList &Args) {
   return EH;
 }
 
-void Clang::AddClangCLArgs(const ArgList &Args, ArgStringList &CmdArgs,
+void Clang::AddClangCLArgs(const ArgList &Args, types::ID InputType,
+                           ArgStringList &CmdArgs,
                            codegenoptions::DebugInfoKind *DebugInfoKind,
                            bool *EmitCodeView) const {
   unsigned RTOptionID = options::OPT__SLASH_MT;
@@ -5899,11 +5935,12 @@ void Clang::AddClangCLArgs(const ArgList &Args, ArgStringList &CmdArgs,
   const Driver &D = getToolChain().getDriver();
   EHFlags EH = parseClangCLEHFlags(D, Args);
   if (EH.Synch || EH.Asynch) {
-    CmdArgs.push_back("-fcxx-exceptions");
+    if (types::isCXX(InputType))
+      CmdArgs.push_back("-fcxx-exceptions");
     CmdArgs.push_back("-fexceptions");
-    if (EH.NoUnwindC)
-      CmdArgs.push_back("-fexternc-nounwind");
   }
+  if (types::isCXX(InputType) && EH.Synch && EH.NoUnwindC)
+    CmdArgs.push_back("-fexternc-nounwind");
 
   // /EP should expand to -E -P.
   if (Args.hasArg(options::OPT__SLASH_EP)) {
