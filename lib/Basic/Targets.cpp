@@ -1931,6 +1931,8 @@ public:
       .Case("tonga",    GK_VOLCANIC_ISLANDS)
       .Case("iceland",  GK_VOLCANIC_ISLANDS)
       .Case("carrizo",  GK_VOLCANIC_ISLANDS)
+      .Case("fiji",     GK_VOLCANIC_ISLANDS)
+      .Case("stoney",   GK_VOLCANIC_ISLANDS)
       .Default(GK_NONE);
 
     if (GPU == GK_NONE) {
@@ -2559,14 +2561,20 @@ public:
   bool setFPMath(StringRef Name) override;
 
   CallingConvCheckResult checkCallingConvention(CallingConv CC) const override {
-    // We accept all non-ARM calling conventions
-    return (CC == CC_X86ThisCall ||
-            CC == CC_X86FastCall ||
-            CC == CC_X86StdCall ||
-            CC == CC_X86VectorCall ||
-            CC == CC_C ||
-            CC == CC_X86Pascal ||
-            CC == CC_IntelOclBicc) ? CCCR_OK : CCCR_Warning;
+    // Most of the non-ARM calling conventions are i386 conventions.
+    switch (CC) {
+    case CC_X86ThisCall:
+    case CC_X86FastCall:
+    case CC_X86StdCall:
+    case CC_X86VectorCall:
+    case CC_C:
+    case CC_Swift:
+    case CC_X86Pascal:
+    case CC_IntelOclBicc:
+      return CCCR_OK;
+    default:
+      return CCCR_Warning;
+    }
   }
 
   CallingConv getDefaultCallingConv(CallingConvMethodType MT) const override {
@@ -2891,7 +2899,8 @@ void X86TargetInfo::setSSELevel(llvm::StringMap<bool> &Features,
   case AVX512F:
     Features["avx512f"] = Features["avx512cd"] = Features["avx512er"] =
       Features["avx512pf"] = Features["avx512dq"] = Features["avx512bw"] =
-      Features["avx512vl"] = false;
+      Features["avx512vl"] = Features["avx512vbmi"] =
+      Features["avx512ifma"] = false;
   }
 }
 
@@ -2989,8 +2998,9 @@ void X86TargetInfo::setFeatureEnabledImpl(llvm::StringMap<bool> &Features,
     setSSELevel(Features, AVX2, Enabled);
   } else if (Name == "avx512f") {
     setSSELevel(Features, AVX512F, Enabled);
-  } else if (Name == "avx512cd" || Name == "avx512er" || Name == "avx512pf"
-          || Name == "avx512dq" || Name == "avx512bw" || Name == "avx512vl") {
+  } else if (Name == "avx512cd" || Name == "avx512er" || Name == "avx512pf" ||
+             Name == "avx512dq" || Name == "avx512bw" || Name == "avx512vl" ||
+             Name == "avx512vbmi" || Name == "avx512ifma") {
     if (Enabled)
       setSSELevel(Features, AVX512F, Enabled);
   } else if (Name == "fma") {
@@ -3018,15 +3028,11 @@ void X86TargetInfo::setFeatureEnabledImpl(llvm::StringMap<bool> &Features,
     else
       setSSELevel(Features, SSE41, Enabled);
   } else if (Name == "xsave") {
-    if (Enabled)
-      setSSELevel(Features, AVX, Enabled);
-    else
+    if (!Enabled)
       Features["xsaveopt"] = false;
   } else if (Name == "xsaveopt" || Name == "xsavec" || Name == "xsaves") {
-    if (Enabled) {
+    if (Enabled)
       Features["xsave"] = true;
-      setSSELevel(Features, AVX, Enabled);
-    }
   }
 }
 
@@ -3402,6 +3408,10 @@ void X86TargetInfo::getTargetDefines(const LangOptions &Opts,
     Builder.defineMacro("__AVX512BW__");
   if (HasAVX512VL)
     Builder.defineMacro("__AVX512VL__");
+  if (HasAVX512VBMI)
+    Builder.defineMacro("__AVX512VBMI__");
+  if (HasAVX512IFMA)
+    Builder.defineMacro("__AVX512IFMA__");
 
   if (HasSHA)
     Builder.defineMacro("__SHA__");
@@ -4107,10 +4117,16 @@ public:
   }
 
   CallingConvCheckResult checkCallingConvention(CallingConv CC) const override {
-    return (CC == CC_C ||
-            CC == CC_X86VectorCall ||
-            CC == CC_IntelOclBicc ||
-            CC == CC_X86_64Win64) ? CCCR_OK : CCCR_Warning;
+    switch (CC) {
+    case CC_C:
+    case CC_Swift:
+    case CC_X86VectorCall:
+    case CC_IntelOclBicc:
+    case CC_X86_64Win64:
+      return CCCR_OK;
+    default:
+      return CCCR_Warning;
+    }
   }
 
   CallingConv getDefaultCallingConv(CallingConvMethodType MT) const override {
@@ -4520,7 +4536,8 @@ class ARMTargetInfo : public TargetInfo {
   }
 
   bool supportsThumb2() const {
-    return CPUAttr.equals("6T2") || ArchVersion >= 7;
+    return CPUAttr.equals("6T2") ||
+           (ArchVersion >= 7 && !CPUAttr.equals("8M_BASE"));
   }
 
   StringRef getCPUAttr() const {
@@ -4547,6 +4564,10 @@ class ARMTargetInfo : public TargetInfo {
       return "8_1A";
     case llvm::ARM::AK_ARMV8_2A:
       return "8_2A";
+    case llvm::ARM::AK_ARMV8MBaseline:
+      return "8M_BASE";
+    case llvm::ARM::AK_ARMV8MMainline:
+      return "8M_MAIN";
     }
   }
 
@@ -4836,13 +4857,14 @@ public:
 
     // __ARM_ARCH_ISA_ARM is defined to 1 if the core supports the ARM ISA.  It
     // is not defined for the M-profile.
-    // NOTE that the deffault profile is assumed to be 'A'
-    if (CPUProfile.empty() || CPUProfile != "M")
+    // NOTE that the default profile is assumed to be 'A'
+    if (CPUProfile.empty() || ArchProfile != llvm::ARM::PK_M)
       Builder.defineMacro("__ARM_ARCH_ISA_ARM", "1");
 
-    // __ARM_ARCH_ISA_THUMB is defined to 1 if the core supporst the original
-    // Thumb ISA (including v6-M).  It is set to 2 if the core supports the
-    // Thumb-2 ISA as found in the v6T2 architecture and all v7 architecture.
+    // __ARM_ARCH_ISA_THUMB is defined to 1 if the core supports the original
+    // Thumb ISA (including v6-M and v8-M Baseline).  It is set to 2 if the
+    // core supports the Thumb-2 ISA as found in the v6T2 architecture and all
+    // v7 and v8 architectures excluding v8-M Baseline.
     if (supportsThumb2())
       Builder.defineMacro("__ARM_ARCH_ISA_THUMB", "2");
     else if (supportsThumb())
@@ -4962,7 +4984,7 @@ public:
     Builder.defineMacro("__ARM_SIZEOF_MINIMAL_ENUM",
                         Opts.ShortEnums ? "1" : "4");
 
-    if (ArchVersion >= 6 && CPUAttr != "6M") {
+    if (ArchVersion >= 6 && CPUAttr != "6M" && CPUAttr != "8M_BASE") {
       Builder.defineMacro("__GCC_HAVE_SYNC_COMPARE_AND_SWAP_1");
       Builder.defineMacro("__GCC_HAVE_SYNC_COMPARE_AND_SWAP_2");
       Builder.defineMacro("__GCC_HAVE_SYNC_COMPARE_AND_SWAP_4");
@@ -5091,7 +5113,14 @@ public:
   }
 
   CallingConvCheckResult checkCallingConvention(CallingConv CC) const override {
-    return (CC == CC_AAPCS || CC == CC_AAPCS_VFP) ? CCCR_OK : CCCR_Warning;
+    switch (CC) {
+    case CC_AAPCS:
+    case CC_AAPCS_VFP:
+    case CC_Swift:
+      return CCCR_OK;
+    default:
+      return CCCR_Warning;
+    }
   }
 
   int getEHDataRegisterNumber(unsigned RegNo) const override {
@@ -5541,6 +5570,16 @@ public:
     setDataLayoutString();
 
     return true;
+  }
+
+  CallingConvCheckResult checkCallingConvention(CallingConv CC) const override {
+    switch (CC) {
+    case CC_C:
+    case CC_Swift:
+      return CCCR_OK;
+    default:
+      return CCCR_Warning;
+    }
   }
 
   bool isCLZForZeroUndef() const override { return false; }
