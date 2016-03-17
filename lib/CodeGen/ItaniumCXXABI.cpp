@@ -1529,8 +1529,8 @@ ItaniumCXXABI::getVTableAddressPoint(BaseSubobject Base,
                               .getVTableLayout(VTableClass)
                               .getAddressPoint(Base);
   llvm::Value *Indices[] = {
-    llvm::ConstantInt::get(CGM.Int64Ty, 0),
-    llvm::ConstantInt::get(CGM.Int64Ty, AddressPoint)
+    llvm::ConstantInt::get(CGM.Int32Ty, 0),
+    llvm::ConstantInt::get(CGM.Int32Ty, AddressPoint)
   };
 
   return llvm::ConstantExpr::getInBoundsGetElementPtr(VTable->getValueType(),
@@ -2883,7 +2883,7 @@ static llvm::GlobalVariable::LinkageTypes getTypeInfoLinkage(CodeGenModule &CGM,
 
 llvm::Constant *ItaniumRTTIBuilder::BuildTypeInfo(QualType Ty, bool Force) {
   // We want to operate on the canonical type.
-  Ty = CGM.getContext().getCanonicalType(Ty);
+  Ty = Ty.getCanonicalType();
 
   // Check if we've already emitted an RTTI descriptor for this type.
   SmallString<256> Name;
