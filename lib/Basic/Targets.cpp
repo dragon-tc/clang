@@ -2006,7 +2006,7 @@ const char * const AMDGPUTargetInfo::GCCRegNames[] = {
   "s96", "s97", "s98", "s99", "s100", "s101", "s102", "s103",
   "s104", "s105", "s106", "s107", "s108", "s109", "s110", "s111",
   "s112", "s113", "s114", "s115", "s116", "s117", "s118", "s119",
-  "s120", "s121", "s122", "s123", "s124", "s125", "s126", "s127"
+  "s120", "s121", "s122", "s123", "s124", "s125", "s126", "s127",
   "exec", "vcc", "scc", "m0", "flat_scratch", "exec_lo", "exec_hi",
   "vcc_lo", "vcc_hi", "flat_scratch_lo", "flat_scratch_hi"
 };
@@ -2584,6 +2584,9 @@ bool X86TargetInfo::initFeatureMap(
   // X86_64 always has SSE2.
   if (getTriple().getArch() == llvm::Triple::x86_64)
     setFeatureEnabledImpl(Features, "sse2", true);
+
+  // Enable X87 for all X86 processors.
+  setFeatureEnabledImpl(Features, "x87", true);
 
   switch (getCPUKind(CPU)) {
   case CK_Generic:

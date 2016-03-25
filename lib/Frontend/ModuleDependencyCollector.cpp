@@ -15,7 +15,6 @@
 #include "clang/Serialization/ASTReader.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/iterator_range.h"
-#include "llvm/Config/config.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
@@ -50,6 +49,10 @@ void ModuleDependencyCollector::writeFileMap() {
 
   SmallString<256> Dest = getDest();
   llvm::sys::path::append(Dest, "vfs.yaml");
+
+  // Default to use relative overlay directories in the VFS yaml file. This
+  // allows crash reproducer scripts to work across machines.
+  VFSWriter.setOverlayDir(getDest());
 
   std::error_code EC;
   llvm::raw_fd_ostream OS(Dest, EC, llvm::sys::fs::F_Text);
