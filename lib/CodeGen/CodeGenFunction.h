@@ -68,7 +68,6 @@ class ObjCMethodDecl;
 class ObjCImplementationDecl;
 class ObjCPropertyImplDecl;
 class TargetInfo;
-class TargetCodeGenInfo;
 class VarDecl;
 class ObjCForCollectionStmt;
 class ObjCAtTryStmt;
@@ -86,6 +85,7 @@ class BlockByrefHelpers;
 class BlockByrefInfo;
 class BlockFlags;
 class BlockFieldFlags;
+class TargetCodeGenInfo;
 
 /// The kind of evaluation to perform on values of a particular
 /// type.  Basically, is the code in CGExprScalar, CGExprComplex, or
@@ -2366,6 +2366,13 @@ public:
   void EmitOMPDistributeDirective(const OMPDistributeDirective &S);
   void EmitOMPDistributeLoop(const OMPDistributeDirective &S);
 
+  /// Emit outlined function for the target directive.
+  static std::pair<llvm::Function * /*OutlinedFn*/,
+                   llvm::Constant * /*OutlinedFnID*/>
+  EmitOMPTargetDirectiveOutlinedFunction(CodeGenModule &CGM,
+                                         const OMPTargetDirective &S,
+                                         StringRef ParentName,
+                                         bool IsOffloadEntry);
   /// \brief Emit inner loop of the worksharing/simd construct.
   ///
   /// \param S Directive, for which the inner loop must be emitted.
@@ -3103,7 +3110,7 @@ private:
   ///
   /// \param AI - The first function argument of the expansion.
   void ExpandTypeFromArgs(QualType Ty, LValue Dst,
-                          SmallVectorImpl<llvm::Argument *>::iterator &AI);
+                          SmallVectorImpl<llvm::Value *>::iterator &AI);
 
   /// ExpandTypeToArgs - Expand an RValue \arg RV, with the LLVM type for \arg
   /// Ty, into individual arguments on the provided vector \arg IRCallArgs,
