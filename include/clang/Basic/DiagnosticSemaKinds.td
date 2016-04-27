@@ -2742,9 +2742,6 @@ def warn_impcast_float_precision : Warning<
 def warn_impcast_double_promotion : Warning<
   "implicit conversion increases floating-point precision: %0 to %1">,
   InGroup<DoublePromotion>, DefaultIgnore;
-def warn_impcast_float_integer : Warning<
-  "implicit conversion turns floating-point number into integer: %0 to %1">,
-  InGroup<FloatConversion>, DefaultIgnore;
 def warn_impcast_integer_sign : Warning<
   "implicit conversion changes signedness: %0 to %1">,
   InGroup<SignConversion>, DefaultIgnore;
@@ -2763,9 +2760,22 @@ def warn_impcast_integer_precision_constant : Warning<
 def warn_impcast_bitfield_precision_constant : Warning<
   "implicit truncation from %2 to bitfield changes value from %0 to %1">,
   InGroup<BitFieldConstantConversion>;
+
 def warn_impcast_literal_float_to_integer : Warning<
   "implicit conversion from %0 to %1 changes value from %2 to %3">,
   InGroup<LiteralConversion>;
+def warn_impcast_float_integer : Warning<
+  "implicit conversion turns floating-point number into integer: %0 to %1">,
+  InGroup<FloatConversion>, DefaultIgnore;
+
+def warn_impcast_float_to_integer : Warning<
+  "implicit conversion of out of range value from %0 to %1 changes value "
+  "from %2 to %3">,
+  InGroup<FloatOverflowConversion>, DefaultIgnore;
+def warn_impcast_float_to_integer_zero : Warning<
+  "implicit conversion from %0 to %1 changes non-zero value from %2 to %3">,
+  InGroup<FloatZeroConversion>, DefaultIgnore;
+
 def warn_impcast_string_literal_to_bool : Warning<
   "implicit conversion turns string literal into bool: %0 to %1">,
   InGroup<StringConversion>, DefaultIgnore;
@@ -5754,6 +5764,9 @@ def err_static_downcast_via_virtual : Error<
   "cannot cast %0 to %1 via virtual base %2">;
 def err_downcast_from_inaccessible_base : Error<
   "cannot cast %select{private|protected}2 base class %1 to %0">;
+def ext_ms_downcast_from_inaccessible_base : ExtWarn<
+  "casting from %select{private|protected}2 base class %1 to derived class %0 is a Microsoft extension">,
+  InGroup<MicrosoftCast>;
 def err_upcast_to_inaccessible_base : Error<
   "cannot cast %0 to its %select{private|protected}2 base class %1">;
 def err_bad_dynamic_cast_not_ref_or_ptr : Error<
@@ -7425,8 +7438,10 @@ def err_ms_va_start_used_in_sysv_function : Error<
 def warn_second_arg_of_va_start_not_last_named_param : Warning<
   "second argument to 'va_start' is not the last named parameter">,
   InGroup<Varargs>;
-def warn_va_start_of_reference_type_is_undefined : Warning<
-  "'va_start' has undefined behavior with reference types">, InGroup<Varargs>;
+def warn_va_start_type_is_undefined : Warning<
+  "passing %select{an object that undergoes default argument promotion|"
+  "an object of reference type|a parameter declared with the 'register' "
+  "keyword}0 to 'va_start' has undefined behavior">, InGroup<Varargs>;
 def err_first_argument_to_va_arg_not_of_type_va_list : Error<
   "first argument to 'va_arg' is of type %0 and not 'va_list'">;
 def err_second_parameter_to_va_arg_incomplete: Error<

@@ -2137,6 +2137,13 @@ void Clang::AddX86TargetArgs(const ArgList &Args,
           << A->getOption().getName() << Value;
     }
   }
+
+  // Set flags to support MCU ABI.
+  if (Args.hasArg(options::OPT_miamcu)) {
+    CmdArgs.push_back("-mfloat-abi");
+    CmdArgs.push_back("soft");
+    CmdArgs.push_back("-mstack-alignment=4");
+  }
 }
 
 void Clang::AddHexagonTargetArgs(const ArgList &Args,
@@ -3006,6 +3013,8 @@ collectSanitizerRuntimes(const ToolChain &TC, const ArgList &Args,
     NonWholeStaticRuntimes.push_back("stats");
     RequiredSymbols.push_back("__sanitizer_stats_register");
   }
+  if (SanArgs.needsEsanRt())
+    StaticRuntimes.push_back("esan");
 }
 
 // Should be called before we add system libraries (C++ ABI, libstdc++/libc++,
