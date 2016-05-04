@@ -87,6 +87,7 @@ class BlockFlags;
 class BlockFieldFlags;
 class RegionCodeGenTy;
 class TargetCodeGenInfo;
+struct OMPTaskDataTy;
 
 /// The kind of evaluation to perform on values of a particular
 /// type.  Basically, is the code in CGExprScalar, CGExprComplex, or
@@ -639,6 +640,11 @@ public:
     ~OMPPrivateScope() {
       if (PerformCleanup)
         ForceCleanup();
+    }
+
+    /// Checks if the global variable is captured in current function. 
+    bool isGlobalVarCaptured(const VarDecl *VD) const {
+      return !VD->isLocalVarDeclOrParm() && CGF.LocalDeclMap.count(VD) > 0;
     }
 
   private:
@@ -1873,7 +1879,7 @@ public:
                                       const CXXConstructExpr *E);
 
   void EmitCXXAggrConstructorCall(const CXXConstructorDecl *D,
-                                  const ConstantArrayType *ArrayTy,
+                                  const ArrayType *ArrayTy,
                                   Address ArrayPtr,
                                   const CXXConstructExpr *E,
                                   bool ZeroInitialization = false);
@@ -2341,23 +2347,13 @@ public:
   /// \param D Directive (possibly) with the 'linear' clause.
   void EmitOMPLinearClauseInit(const OMPLoopDirective &D);
 
-  struct OMPPrivateDataTy {
-    bool Tied;
-    unsigned NumberOfParts;
-    SmallVector<const Expr *, 4> PrivateVars;
-    SmallVector<const Expr *, 4> PrivateCopies;
-    SmallVector<const Expr *, 4> FirstprivateVars;
-    SmallVector<const Expr *, 4> FirstprivateCopies;
-    SmallVector<const Expr *, 4> FirstprivateInits;
-    SmallVector<std::pair<OpenMPDependClauseKind, const Expr *>, 4> Dependences;
-  };
   typedef const llvm::function_ref<void(CodeGenFunction & /*CGF*/,
                                         llvm::Value * /*OutlinedFn*/,
-                                        const OMPPrivateDataTy & /*Data*/)>
+                                        const OMPTaskDataTy & /*Data*/)>
       TaskGenTy;
   void EmitOMPTaskBasedDirective(const OMPExecutableDirective &S,
                                  const RegionCodeGenTy &BodyGen,
-                                 const TaskGenTy &TaskGen, bool Tied);
+                                 const TaskGenTy &TaskGen, OMPTaskDataTy &Data);
 
   void EmitOMPParallelDirective(const OMPParallelDirective &S);
   void EmitOMPSimdDirective(const OMPSimdDirective &S);

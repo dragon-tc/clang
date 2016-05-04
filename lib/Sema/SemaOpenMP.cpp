@@ -887,16 +887,56 @@ bool Sema::IsOpenMPCapturedByRef(ValueDecl *D,
     //    array section, the runtime library may pass the NULL value to the
     //    device instead of the value passed to it by the compiler.
 
-    // FIXME: Right now, only implicit maps are implemented. Properly mapping
-    // values requires having the map, private, and firstprivate clauses SEMA
-    // and parsing in place, which we don't yet.
 
     if (Ty->isReferenceType())
       Ty = Ty->castAs<ReferenceType>()->getPointeeType();
-    IsByRef = !Ty->isScalarType();
+
+    // Locate map clauses and see if the variable being captured is referred to
+    // in any of those clauses. Here we only care about variables, not fields,
+    // because fields are part of aggregates.
+    bool IsVariableUsedInMapClause = false;
+    bool IsVariableAssociatedWithSection = false;
+
+    DSAStack->checkMappableExprComponentListsForDecl(
+        D, /*CurrentRegionOnly=*/true,
+        [&](OMPClauseMappableExprCommon::MappableExprComponentListRef
+                MapExprComponents) {
+
+          auto EI = MapExprComponents.rbegin();
+          auto EE = MapExprComponents.rend();
+
+          assert(EI != EE && "Invalid map expression!");
+
+          if (isa<DeclRefExpr>(EI->getAssociatedExpression()))
+            IsVariableUsedInMapClause |= EI->getAssociatedDeclaration() == D;
+
+          ++EI;
+          if (EI == EE)
+            return false;
+
+          if (isa<ArraySubscriptExpr>(EI->getAssociatedExpression()) ||
+              isa<OMPArraySectionExpr>(EI->getAssociatedExpression()) ||
+              isa<MemberExpr>(EI->getAssociatedExpression())) {
+            IsVariableAssociatedWithSection = true;
+            // There is nothing more we need to know about this variable.
+            return true;
+          }
+
+          // Keep looking for more map info.
+          return false;
+        });
+
+    if (IsVariableUsedInMapClause) {
+      // If variable is identified in a map clause it is always captured by
+      // reference except if it is a pointer that is dereferenced somehow.
+      IsByRef = !(Ty->isPointerType() && IsVariableAssociatedWithSection);
+    } else {
+      // By default, all the data that has a scalar type is mapped by copy.
+      IsByRef = !Ty->isScalarType();
+    }
   }
 
-  // When passing data by value, we need to make sure it fits the uintptr size
+  // When passing data by copy, we need to make sure it fits the uintptr size
   // and alignment, because the runtime library only deals with uintptr types.
   // If it does not fit the uintptr size, we need to pass the data by reference
   // instead.
@@ -1376,6 +1416,9 @@ class DSAAttrChecker : public StmtVisitor<DSAAttrChecker, void> {
 
 public:
   void VisitDeclRefExpr(DeclRefExpr *E) {
+    if (E->isTypeDependent() || E->isValueDependent() ||
+        E->containsUnexpandedParameterPack() || E->isInstantiationDependent())
+      return;
     if (auto *VD = dyn_cast<VarDecl>(E->getDecl())) {
       // Skip internally declared variables.
       if (VD->isLocalVarDecl() && !CS->capturesVariable(VD))
@@ -1424,6 +1467,9 @@ public:
     }
   }
   void VisitMemberExpr(MemberExpr *E) {
+    if (E->isTypeDependent() || E->isValueDependent() ||
+        E->containsUnexpandedParameterPack() || E->isInstantiationDependent())
+      return;
     if (isa<CXXThisExpr>(E->getBase()->IgnoreParens())) {
       if (auto *FD = dyn_cast<FieldDecl>(E->getMemberDecl())) {
         auto DVar = Stack->getTopDSA(FD, false);
@@ -1680,7 +1726,8 @@ void Sema::ActOnOpenMPRegionStart(OpenMPDirectiveKind DKind, Scope *CurScope) {
                              Params);
     break;
   }
-  case OMPD_taskloop: {
+  case OMPD_taskloop:
+  case OMPD_taskloop_simd: {
     QualType KmpInt32Ty =
         Context.getIntTypeForBitwidth(/*DestWidth=*/32, /*Signed=*/1);
     QualType KmpUInt64Ty =
@@ -1712,14 +1759,6 @@ void Sema::ActOnOpenMPRegionStart(OpenMPDirectiveKind DKind, Scope *CurScope) {
     getCurCapturedRegion()->TheCapturedDecl->addAttr(
         AlwaysInlineAttr::CreateImplicit(
             Context, AlwaysInlineAttr::Keyword_forceinline, SourceRange()));
-    break;
-  }
-  case OMPD_taskloop_simd: {
-    Sema::CapturedParamNameType Params[] = {
-        std::make_pair(StringRef(), QualType()) // __context with shared vars
-    };
-    ActOnCapturedRegionStart(DSAStack->getConstructLoc(), CurScope, CR_OpenMP,
-                             Params);
     break;
   }
   case OMPD_distribute: {

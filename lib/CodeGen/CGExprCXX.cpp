@@ -274,7 +274,7 @@ RValue CodeGenFunction::EmitCXXMemberOrOperatorMemberCallExpr(
 
   if (MD->isVirtual()) {
     This = CGM.getCXXABI().adjustThisArgumentForVirtualFunctionCall(
-        *this, MD, This, UseVirtualCall);
+        *this, CalleeDecl, This, UseVirtualCall);
   }
 
   return EmitCXXMemberOrOperatorCall(MD, Callee, ReturnValue, This.getPointer(),
@@ -472,8 +472,8 @@ CodeGenFunction::EmitCXXConstructExpr(const CXXConstructExpr *E,
     }
   }
   
-  if (const ConstantArrayType *arrayType 
-        = getContext().getAsConstantArrayType(E->getType())) {
+  if (const ArrayType *arrayType
+        = getContext().getAsArrayType(E->getType())) {
     EmitCXXAggrConstructorCall(CD, arrayType, Dest.getAddress(), E);
   } else {
     CXXCtorType Type = Ctor_Complete;
