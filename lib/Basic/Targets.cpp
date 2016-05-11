@@ -427,6 +427,8 @@ protected:
       Builder.defineMacro("_REENTRANT");
     if (Opts.CPlusPlus)
       Builder.defineMacro("_GNU_SOURCE");
+    if (this->HasFloat128)
+      Builder.defineMacro("__FLOAT128__");
   }
 public:
   LinuxTargetInfo(const llvm::Triple &Triple, const TargetOptions &Opts)
@@ -440,6 +442,11 @@ public:
     case llvm::Triple::ppc64:
     case llvm::Triple::ppc64le:
       this->MCountName = "_mcount";
+      break;
+    case llvm::Triple::x86:
+    case llvm::Triple::x86_64:
+    case llvm::Triple::systemz:
+      this->HasFloat128 = true;
       break;
     }
   }
@@ -844,8 +851,9 @@ public:
     ArchDefinePwr6x = 1 << 10,
     ArchDefinePwr7  = 1 << 11,
     ArchDefinePwr8  = 1 << 12,
-    ArchDefineA2    = 1 << 13,
-    ArchDefineA2q   = 1 << 14
+    ArchDefinePwr9  = 1 << 13,
+    ArchDefineA2    = 1 << 14,
+    ArchDefineA2q   = 1 << 15
   } ArchDefineTypes;
 
   // Note: GCC recognizes the following additional cpus:
@@ -894,6 +902,8 @@ public:
       .Case("pwr7", true)
       .Case("power8", true)
       .Case("pwr8", true)
+      .Case("power9", true)
+      .Case("pwr9", true)
       .Case("powerpc", true)
       .Case("ppc", true)
       .Case("powerpc64", true)
@@ -1096,6 +1106,8 @@ bool PPCTargetInfo::handleTargetFeatures(std::vector<std::string> &Features,
       HasQPX = true;
     } else if (Feature == "+htm") {
       HasHTM = true;
+    } else if (Feature == "+float128") {
+      HasFloat128 = true;
     }
     // TODO: Finish this list and add an assert that we've handled them
     // all.
@@ -1186,6 +1198,10 @@ void PPCTargetInfo::getTargetDefines(const LangOptions &Opts,
     .Case("pwr8",  ArchDefineName | ArchDefinePwr7 | ArchDefinePwr6x
                      | ArchDefinePwr6 | ArchDefinePwr5x | ArchDefinePwr5
                      | ArchDefinePwr4 | ArchDefinePpcgr | ArchDefinePpcsq)
+    .Case("pwr9",  ArchDefineName | ArchDefinePwr8 | ArchDefinePwr7
+                     | ArchDefinePwr6x | ArchDefinePwr6 | ArchDefinePwr5x
+                     | ArchDefinePwr5 | ArchDefinePwr4 | ArchDefinePpcgr
+                     | ArchDefinePpcsq)
     .Case("power3",  ArchDefinePpcgr)
     .Case("power4",  ArchDefinePwr4 | ArchDefinePpcgr | ArchDefinePpcsq)
     .Case("power5",  ArchDefinePwr5 | ArchDefinePwr4 | ArchDefinePpcgr
@@ -1203,6 +1219,10 @@ void PPCTargetInfo::getTargetDefines(const LangOptions &Opts,
     .Case("power8",  ArchDefinePwr8 | ArchDefinePwr7 | ArchDefinePwr6x
                        | ArchDefinePwr6 | ArchDefinePwr5x | ArchDefinePwr5
                        | ArchDefinePwr4 | ArchDefinePpcgr | ArchDefinePpcsq)
+    .Case("power9",  ArchDefinePwr9 | ArchDefinePwr8 | ArchDefinePwr7
+                       | ArchDefinePwr6x | ArchDefinePwr6 | ArchDefinePwr5x
+                       | ArchDefinePwr5 | ArchDefinePwr4 | ArchDefinePpcgr
+                       | ArchDefinePpcsq)
     .Default(ArchDefineNone);
 
   if (defs & ArchDefineName)
@@ -1231,6 +1251,8 @@ void PPCTargetInfo::getTargetDefines(const LangOptions &Opts,
     Builder.defineMacro("_ARCH_PWR7");
   if (defs & ArchDefinePwr8)
     Builder.defineMacro("_ARCH_PWR8");
+  if (defs & ArchDefinePwr9)
+    Builder.defineMacro("_ARCH_PWR9");
   if (defs & ArchDefineA2)
     Builder.defineMacro("_ARCH_A2");
   if (defs & ArchDefineA2q) {
@@ -1253,6 +1275,8 @@ void PPCTargetInfo::getTargetDefines(const LangOptions &Opts,
     Builder.defineMacro("__CRYPTO__");
   if (HasHTM)
     Builder.defineMacro("__HTM__");
+  if (HasFloat128)
+    Builder.defineMacro("__FLOAT128__");
 
   Builder.defineMacro("__GCC_HAVE_SYNC_COMPARE_AND_SWAP_1");
   Builder.defineMacro("__GCC_HAVE_SYNC_COMPARE_AND_SWAP_2");
@@ -1303,6 +1327,13 @@ static bool ppcUserFeaturesCheck(DiagnosticsEngine &Diags,
                                                      << "-mno-vsx";
       return false;
     }
+
+    if (std::find(FeaturesVec.begin(), FeaturesVec.end(), "+float128") !=
+        FeaturesVec.end()) {
+      Diags.Report(diag::err_opt_not_valid_with_opt) << "-mfloat128"
+                                                     << "-mno-vsx";
+      return false;
+    }
   }
 
   return true;
@@ -1321,6 +1352,7 @@ bool PPCTargetInfo::initFeatureMap(
     .Case("pwr6", true)
     .Case("pwr7", true)
     .Case("pwr8", true)
+    .Case("pwr9", true)
     .Case("ppc64", true)
     .Case("ppc64le", true)
     .Default(false);
@@ -1328,28 +1360,34 @@ bool PPCTargetInfo::initFeatureMap(
   Features["qpx"] = (CPU == "a2q");
   Features["crypto"] = llvm::StringSwitch<bool>(CPU)
     .Case("ppc64le", true)
+    .Case("pwr9", true)
     .Case("pwr8", true)
     .Default(false);
   Features["power8-vector"] = llvm::StringSwitch<bool>(CPU)
     .Case("ppc64le", true)
+    .Case("pwr9", true)
     .Case("pwr8", true)
     .Default(false);
   Features["bpermd"] = llvm::StringSwitch<bool>(CPU)
     .Case("ppc64le", true)
+    .Case("pwr9", true)
     .Case("pwr8", true)
     .Case("pwr7", true)
     .Default(false);
   Features["extdiv"] = llvm::StringSwitch<bool>(CPU)
     .Case("ppc64le", true)
+    .Case("pwr9", true)
     .Case("pwr8", true)
     .Case("pwr7", true)
     .Default(false);
   Features["direct-move"] = llvm::StringSwitch<bool>(CPU)
     .Case("ppc64le", true)
+    .Case("pwr9", true)
     .Case("pwr8", true)
     .Default(false);
   Features["vsx"] = llvm::StringSwitch<bool>(CPU)
     .Case("ppc64le", true)
+    .Case("pwr9", true)
     .Case("pwr8", true)
     .Case("pwr7", true)
     .Default(false);
@@ -1371,6 +1409,7 @@ bool PPCTargetInfo::hasFeature(StringRef Feature) const {
     .Case("htm", HasHTM)
     .Case("bpermd", HasBPERMD)
     .Case("extdiv", HasExtDiv)
+    .Case("float128", HasFloat128)
     .Default(false);
 }
 
@@ -1380,11 +1419,11 @@ void PPCTargetInfo::setFeatureEnabled(llvm::StringMap<bool> &Features,
   // as well. Do the inverse if we're disabling vsx. We'll diagnose any user
   // incompatible options.
   if (Enabled) {
-    if (Name == "vsx") {
-     Features[Name] = true;
-    } else if (Name == "direct-move") {
+    if (Name == "direct-move") {
       Features[Name] = Features["vsx"] = true;
     } else if (Name == "power8-vector") {
+      Features[Name] = Features["vsx"] = true;
+    } else if (Name == "float128") {
       Features[Name] = Features["vsx"] = true;
     } else {
       Features[Name] = true;
@@ -1392,7 +1431,7 @@ void PPCTargetInfo::setFeatureEnabled(llvm::StringMap<bool> &Features,
   } else {
     if (Name == "vsx") {
       Features[Name] = Features["direct-move"] = Features["power8-vector"] =
-          false;
+          Features["float128"] = false;
     } else {
       Features[Name] = false;
     }
@@ -6446,6 +6485,10 @@ public:
         break;
       }
     }
+  }
+
+  bool hasSjLjLowering() const override {
+    return true;
   }
 };
 
