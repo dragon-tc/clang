@@ -3374,6 +3374,16 @@ def note_ovl_candidate_bad_cvr : Note<"candidate "
     "%select{const|restrict|const and restrict|volatile|const and volatile|"
     "volatile and restrict|const, volatile, and restrict}3 qualifier"
     "%select{||s||s|s|s}3">;
+def note_ovl_candidate_bad_unaligned : Note<"candidate "
+    "%select{function|function|constructor|"
+    "function |function |constructor |"
+    "constructor (the implicit default constructor)|"
+    "constructor (the implicit copy constructor)|"
+    "constructor (the implicit move constructor)|"
+    "function (the implicit copy assignment operator)|"
+    "function (the implicit move assignment operator)|"
+    "constructor (inherited)}0%1 not viable: "
+    "%ordinal4 argument (%2) would lose __unaligned qualifier">;
 def note_ovl_candidate_bad_base_to_derived_conv : Note<"candidate "
     "%select{function|function|constructor|"
     "function |function |constructor |"
@@ -7855,13 +7865,13 @@ def err_opencl_builtin_pipe_invalid_access_modifier : Error<
 def err_opencl_invalid_access_qualifier : Error<
   "access qualifier can only be used for pipe and image type">;
 def err_opencl_invalid_read_write : Error<
-  "access qualifier %0 can not be used for %1 %select{|earlier than OpenCL2.0 version}2">;
+  "access qualifier %0 can not be used for %1 %select{|earlier than OpenCL version 2.0}2">;
 def err_opencl_multiple_access_qualifiers : Error<
   "multiple access qualifiers">;
 
 // OpenCL Section 6.8.g
 def err_opencl_unknown_type_specifier : Error<
-  "OpenCL does not support the '%0' %select{type qualifier|storage class specifier}1">;
+  "OpenCL version %0 does not support the '%1' %select{type qualifier|storage class specifier}2">;
 
 // OpenCL v2.0 s6.12.5 Blocks restrictions
 def err_opencl_block_storage_type : Error<
