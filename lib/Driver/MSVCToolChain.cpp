@@ -38,8 +38,6 @@
     #define NOMINMAX
   #endif
   #include <windows.h>
-
-  #pragma comment(lib, "version.lib")
 #endif
 
 using namespace clang::driver;
@@ -466,7 +464,7 @@ VersionTuple MSVCToolChain::getMSVCVersionFromExe() const {
   std::string BinPath;
   if (!getVisualStudioBinariesFolder("", BinPath))
     return Version;
-  SmallString<128> ClExe = BinPath;
+  SmallString<128> ClExe(BinPath);
   llvm::sys::path::append(ClExe, "cl.exe");
 
   std::wstring ClExeWide;
