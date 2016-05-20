@@ -632,7 +632,7 @@ protected:
     Builder.defineMacro("__KPRINTF_ATTRIBUTE__");
     DefineStd(Builder, "unix", Opts);
     Builder.defineMacro("__ELF__");
-    Builder.defineMacro("__PS4__");
+    Builder.defineMacro("__ORBIS__");
   }
 public:
   PS4OSTargetInfo(const llvm::Triple &Triple, const TargetOptions &Opts)
@@ -1689,6 +1689,9 @@ class NVPTXTargetInfo : public TargetInfo {
     GK_SM30,
     GK_SM35,
     GK_SM37,
+    GK_SM50,
+    GK_SM52,
+    GK_SM53,
   } GPU;
 
 public:
@@ -1787,6 +1790,15 @@ public:
       case GK_SM37:
         CUDAArchCode = "370";
         break;
+      case GK_SM50:
+        CUDAArchCode = "500";
+        break;
+      case GK_SM52:
+        CUDAArchCode = "520";
+        break;
+      case GK_SM53:
+        CUDAArchCode = "530";
+        break;
       default:
         llvm_unreachable("Unhandled target CPU");
       }
@@ -1836,6 +1848,9 @@ public:
               .Case("sm_30", GK_SM30)
               .Case("sm_35", GK_SM35)
               .Case("sm_37", GK_SM37)
+              .Case("sm_50", GK_SM50)
+              .Case("sm_52", GK_SM52)
+              .Case("sm_53", GK_SM53)
               .Default(GK_NONE);
 
     return GPU != GK_NONE;
@@ -1999,17 +2014,6 @@ public:
       Builder.defineMacro("__HAS_FMAF__");
     if (hasLDEXPF)
       Builder.defineMacro("__HAS_LDEXPF__");
-    if (hasFP64 && Opts.OpenCL)
-      Builder.defineMacro("cl_khr_fp64");
-    if (Opts.OpenCL) {
-      if (GPU >= GK_NORTHERN_ISLANDS) {
-        Builder.defineMacro("cl_khr_byte_addressable_store");
-        Builder.defineMacro("cl_khr_global_int32_base_atomics");
-        Builder.defineMacro("cl_khr_global_int32_extended_atomics");
-        Builder.defineMacro("cl_khr_local_int32_base_atomics");
-        Builder.defineMacro("cl_khr_local_int32_extended_atomics");
-      }
-    }
   }
 
   BuiltinVaListKind getBuiltinVaListKind() const override {
@@ -2096,6 +2100,31 @@ public:
     }
 
     return true;
+  }
+
+   void setSupportedOpenCLOpts() override {
+     auto &Opts = getSupportedOpenCLOpts();
+     Opts.cl_clang_storage_class_specifiers = 1;
+     Opts.cl_khr_gl_sharing = 1;
+     Opts.cl_khr_gl_event = 1;
+     Opts.cl_khr_d3d10_sharing = 1;
+     Opts.cl_khr_subgroups = 1;
+
+     if (hasFP64)
+       Opts.cl_khr_fp64 = 1;
+     if (GPU >= GK_NORTHERN_ISLANDS) {
+       Opts.cl_khr_byte_addressable_store = 1;
+       Opts.cl_khr_global_int32_base_atomics = 1;
+       Opts.cl_khr_global_int32_extended_atomics = 1;
+       Opts.cl_khr_local_int32_base_atomics = 1;
+       Opts.cl_khr_local_int32_extended_atomics = 1;
+     }
+     if (GPU >= GK_SOUTHERN_ISLANDS)
+       Opts.cl_khr_fp16 = 1;
+       Opts.cl_khr_int64_base_atomics = 1;
+       Opts.cl_khr_int64_extended_atomics = 1;
+       Opts.cl_khr_3d_image_writes = 1;
+       Opts.cl_khr_gl_msaa_sharing = 1;
   }
 };
 
@@ -2259,6 +2288,7 @@ class X86TargetInfo : public TargetInfo {
   bool HasXSAVEOPT = false;
   bool HasXSAVEC = false;
   bool HasXSAVES = false;
+  bool HasMWAITX = false;
   bool HasPKU = false;
   bool HasCLFLUSHOPT = false;
   bool HasPCOMMIT = false;
@@ -2716,6 +2746,10 @@ public:
   bool hasSjLjLowering() const override {
     return true;
   }
+
+  void setSupportedOpenCLOpts() override {
+    getSupportedOpenCLOpts().setAll();
+  }
 };
 
 bool X86TargetInfo::setFPMath(StringRef Name) {
@@ -2929,6 +2963,7 @@ bool X86TargetInfo::initFeatureMap(
   case CK_BDVER4:
     setFeatureEnabledImpl(Features, "avx2", true);
     setFeatureEnabledImpl(Features, "bmi2", true);
+    setFeatureEnabledImpl(Features, "mwaitx", true);
     // FALLTHROUGH
   case CK_BDVER3:
     setFeatureEnabledImpl(Features, "fsgsbase", true);
@@ -3248,6 +3283,8 @@ bool X86TargetInfo::handleTargetFeatures(std::vector<std::string> &Features,
       HasXSAVEC = true;
     } else if (Feature == "+xsaves") {
       HasXSAVES = true;
+    } else if (Feature == "+mwaitx") {
+      HasMWAITX = true;
     } else if (Feature == "+pku") {
       HasPKU = true;
     } else if (Feature == "+clflushopt") {
@@ -3519,6 +3556,9 @@ void X86TargetInfo::getTargetDefines(const LangOptions &Opts,
 
   if (HasTBM)
     Builder.defineMacro("__TBM__");
+
+  if (HasMWAITX)
+    Builder.defineMacro("__MWAITX__");
 
   switch (XOPLevel) {
   case XOP:
@@ -5991,7 +6031,16 @@ public:
 
   bool validateAsmConstraint(const char *&Name,
                              TargetInfo::ConstraintInfo &Info) const override {
-    return true;
+    switch (*Name) {
+      case 'v':
+      case 'q':
+        if (HasHVX) {
+          Info.setAllowsRegister();
+          return true;
+        }
+        break;
+    }
+    return false;
   }
 
   void getTargetDefines(const LangOptions &Opts,
@@ -7858,6 +7907,12 @@ public:
   CallingConv getDefaultCallingConv(CallingConvMethodType MT) const override {
     return CC_SpirFunction;
   }
+
+  void setSupportedOpenCLOpts() override {
+    // Assume all OpenCL extensions and optional core features are supported
+    // for SPIR since it is a generic target.
+    getSupportedOpenCLOpts().setAll();
+  }
 };
 
 class SPIR32TargetInfo : public SPIRTargetInfo {
@@ -8457,6 +8512,8 @@ TargetInfo::CreateTargetInfo(DiagnosticsEngine &Diags,
 
   if (!Target->handleTargetFeatures(Opts->Features, Diags))
     return nullptr;
+
+  Target->setSupportedOpenCLOpts();
 
   return Target.release();
 }
