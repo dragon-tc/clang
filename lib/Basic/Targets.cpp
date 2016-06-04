@@ -223,7 +223,24 @@ protected:
 
 public:
   DarwinTargetInfo(const llvm::Triple &Triple) : OSTargetInfo<Target>(Triple) {
-    this->TLSSupported = Triple.isMacOSX() && !Triple.isMacOSXVersionLT(10, 7);
+    // By default, no TLS, and we whitelist permitted architecture/OS
+    // combinations.
+    this->TLSSupported = false;
+
+    if (Triple.isMacOSX())
+      this->TLSSupported = !Triple.isMacOSXVersionLT(10, 7);
+    else if (Triple.isiOS()) {
+      // 64-bit iOS supported it from 8 onwards, 32-bit from 9 onwards.
+      if (Triple.getArch() == llvm::Triple::x86_64 ||
+          Triple.getArch() == llvm::Triple::aarch64)
+        this->TLSSupported = !Triple.isOSVersionLT(8);
+      else if (Triple.getArch() == llvm::Triple::x86 ||
+               Triple.getArch() == llvm::Triple::arm ||
+               Triple.getArch() == llvm::Triple::thumb)
+        this->TLSSupported = !Triple.isOSVersionLT(9);
+    } else if (Triple.isWatchOS())
+      this->TLSSupported = !Triple.isOSVersionLT(2);
+
     this->MCountName = "\01mcount";
   }
 
@@ -4898,8 +4915,8 @@ public:
     default: break;
     case 'l': // r0-r7
     case 'h': // r8-r15
-    case 'w': // VFP Floating point register single precision
-    case 'P': // VFP Floating point register double precision
+    case 't': // VFP Floating point register single precision
+    case 'w': // VFP Floating point register double precision
       Info.setAllowsRegister();
       return true;
     case 'I':
@@ -5316,7 +5333,8 @@ public:
   bool setCPU(const std::string &Name) override {
     bool CPUKnown = llvm::StringSwitch<bool>(Name)
                         .Case("generic", true)
-                        .Cases("cortex-a53", "cortex-a57", "cortex-a72", "cortex-a35", true)
+                        .Cases("cortex-a53", "cortex-a57", "cortex-a72",
+                               "cortex-a35", "exynos-m1", true)
                         .Case("cyclone", true)
                         .Default(false);
     return CPUKnown;
@@ -5827,6 +5845,12 @@ public:
   SparcTargetInfo(const llvm::Triple &Triple)
       : TargetInfo(Triple), SoftFloat(false) {}
 
+  int getEHDataRegisterNumber(unsigned RegNo) const override {
+    if (RegNo == 0) return 24;
+    if (RegNo == 1) return 25;
+    return -1;
+  }
+
   bool handleTargetFeatures(std::vector<std::string> &Features,
                             DiagnosticsEngine &Diags) override {
     // The backend doesn't actually handle soft float yet, but in case someone
@@ -6133,6 +6157,12 @@ public:
     Builder.defineMacro("__s390x__");
     Builder.defineMacro("__zarch__");
     Builder.defineMacro("__LONG_DOUBLE_128__");
+
+    Builder.defineMacro("__GCC_HAVE_SYNC_COMPARE_AND_SWAP_1");
+    Builder.defineMacro("__GCC_HAVE_SYNC_COMPARE_AND_SWAP_2");
+    Builder.defineMacro("__GCC_HAVE_SYNC_COMPARE_AND_SWAP_4");
+    Builder.defineMacro("__GCC_HAVE_SYNC_COMPARE_AND_SWAP_8");
+
     if (HasTransactionalExecution)
       Builder.defineMacro("__HTM__");
     if (Opts.ZVector)
@@ -7280,7 +7310,7 @@ public:
   explicit WebAssembly32TargetInfo(const llvm::Triple &T)
       : WebAssemblyTargetInfo(T) {
     MaxAtomicPromoteWidth = MaxAtomicInlineWidth = 32;
-    DataLayoutString = "e-p:32:32-i64:64-n32:64-S128";
+    DataLayoutString = "e-m:e-p:32:32-i64:64-n32:64-S128";
   }
 
 protected:
@@ -7298,7 +7328,7 @@ public:
     LongAlign = LongWidth = 64;
     PointerAlign = PointerWidth = 64;
     MaxAtomicPromoteWidth = MaxAtomicInlineWidth = 64;
-    DataLayoutString = "e-p:64:64-i64:64-n32:64-S128";
+    DataLayoutString = "e-m:e-p:64:64-i64:64-n32:64-S128";
   }
 
 protected:
