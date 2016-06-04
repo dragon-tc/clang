@@ -408,7 +408,10 @@ bool MSVCToolChain::getVisualStudioBinariesFolder(const char *clangProgramPath,
 
         SmallString<128> FilePath(PathSegment);
         llvm::sys::path::append(FilePath, "cl.exe");
-        if (llvm::sys::fs::can_execute(FilePath.c_str()) &&
+        // Checking if cl.exe exists is a small optimization over calling
+        // can_execute, which really only checks for existence but will also do
+        // extra checks for cl.exe.exe.  These add up when walking a long path.
+        if (llvm::sys::fs::exists(FilePath.c_str()) &&
             !llvm::sys::fs::equivalent(FilePath.c_str(), clangProgramPath)) {
           // If we found it on the PATH, use it exactly as is with no
           // modifications.
@@ -719,8 +722,20 @@ static void TranslateOptArg(Arg *A, llvm::opt::DerivedArgList &DAL,
       }
       break;
     case 'b':
-      if (I + 1 != E && isdigit(OptStr[I + 1]))
+      if (I + 1 != E && isdigit(OptStr[I + 1])) {
+        switch (OptStr[I + 1]) {
+        case '0':
+          DAL.AddFlagArg(A, Opts.getOption(options::OPT_fno_inline));
+          break;
+        case '1':
+          // TODO: Inline calls to 'inline functions' only.
+          break;
+        case '2':
+          DAL.AddFlagArg(A, Opts.getOption(options::OPT_finline_functions));
+          break;
+        }
         ++I;
+      }
       break;
     case 'g':
       break;
@@ -804,7 +819,12 @@ MSVCToolChain::TranslateArgs(const llvm::opt::DerivedArgList &Args,
       continue;
     StringRef OptStr = A->getValue();
     for (size_t I = 0, E = OptStr.size(); I != E; ++I) {
-      const char &OptChar = *(OptStr.data() + I);
+      char OptChar = OptStr[I];
+      char PrevChar = I > 0 ? OptStr[I - 1] : '0';
+      if (PrevChar == 'b') {
+        // OptChar does not expand; it's an argument to the previous char.
+        continue;
+      }
       if (OptChar == '1' || OptChar == '2' || OptChar == 'x' || OptChar == 'd')
         ExpandChar = OptStr.data() + I;
     }

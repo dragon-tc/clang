@@ -1055,6 +1055,19 @@ are listed below.
    the behavior of sanitizers in the ``cfi`` group to allow checking
    of cross-DSO virtual and indirect calls.
 
+.. option:: -ffast-math
+
+   Enable fast-math mode. This defines the ``__FAST_MATH__`` preprocessor
+   macro, and lets the compiler make aggressive, potentially-lossy assumptions
+   about floating-point math.  These include:
+
+   * Floating-point math obeys regular algebraic rules for real numbers (e.g.
+     ``+`` and ``*`` are associative, ``x/y == x * (1/y)``, and
+     ``(a + b) * c == a * c + b * c``),
+   * operands to floating-point operations are not equal to ``NaN`` and
+     ``Inf``, and
+   * ``+0`` and ``-0`` are interchangeable.
+
 .. option:: -fwhole-program-vtables
 
    Enable whole-program vtable optimizations, such as single-implementation
@@ -1126,6 +1139,16 @@ are listed below.
 
    This option restricts the generated code to use general registers
    only. This only applies to the AArch64 architecture.
+
+.. option:: -mcompact-branches=[values]
+
+   Control the usage of compact branches for MIPSR6.
+
+   Valid values are: ``never``, ``optimal`` and ``always``.
+   The default value is ``optimal`` which generates compact branches
+   when a delay slot cannot be filled. ``never`` disables the usage of
+   compact branches and ``always`` generates compact branches whenever
+   possible.
 
 **-f[no-]max-type-align=[number]**
    Instruct the code generator to not enforce a higher alignment than the given

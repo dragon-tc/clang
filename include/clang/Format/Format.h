@@ -773,6 +773,8 @@ tooling::Replacements formatReplacements(StringRef Code,
 
 /// \brief Returns the replacements corresponding to applying \p Replaces and
 /// cleaning up the code after that.
+/// This also inserts a C++ #include directive into the correct block if the
+/// replacement corresponding to the header insertion has offset UINT_MAX.
 tooling::Replacements
 cleanupAroundReplacements(StringRef Code, const tooling::Replacements &Replaces,
                           const FormatStyle &Style);
@@ -851,6 +853,22 @@ extern const char *StyleOptionHelpDescription;
 /// determined, the default is LLVM Style (see ``getLLVMStyle()``).
 FormatStyle getStyle(StringRef StyleName, StringRef FileName,
                      StringRef FallbackStyle, vfs::FileSystem *FS = nullptr);
+
+// \brief Returns a string representation of ``Language``.
+inline StringRef getLanguageName(FormatStyle::LanguageKind Language) {
+  switch (Language) {
+  case FormatStyle::LK_Cpp:
+    return "C++";
+  case FormatStyle::LK_Java:
+    return "Java";
+  case FormatStyle::LK_JavaScript:
+    return "JavaScript";
+  case FormatStyle::LK_Proto:
+    return "Proto";
+  default:
+    return "Unknown";
+  }
+}
 
 } // end namespace format
 } // end namespace clang

@@ -1875,13 +1875,13 @@ _mm256_extract_epi32(__m256i __a, const int __imm)
 /// \param __imm
 ///    An immediate integer operand with bits [3:0] determining which vector
 ///    element is extracted and returned.
-/// \returns A 32-bit integer containing the extracted 16 bits of extended
+/// \returns A 32-bit integer containing the extracted 16 bits of zero extended
 ///    packed data.
 static __inline int __DEFAULT_FN_ATTRS
 _mm256_extract_epi16(__m256i __a, const int __imm)
 {
   __v16hi __b = (__v16hi)__a;
-  return __b[__imm & 15];
+  return (unsigned short)__b[__imm & 15];
 }
 
 /// \brief Takes a [32 x i8] vector and returns the vector element value
@@ -1897,13 +1897,13 @@ _mm256_extract_epi16(__m256i __a, const int __imm)
 /// \param __imm
 ///    An immediate integer operand with bits [4:0] determining which vector
 ///    element is extracted and returned.
-/// \returns A 32-bit integer containing the extracted 8 bits of extended packed
-///    data.
+/// \returns A 32-bit integer containing the extracted 8 bits of zero extended
+///    packed data.
 static __inline int __DEFAULT_FN_ATTRS
 _mm256_extract_epi8(__m256i __a, const int __imm)
 {
   __v32qi __b = (__v32qi)__a;
-  return __b[__imm & 31];
+  return (unsigned char)__b[__imm & 31];
 }
 
 #ifdef __x86_64__
@@ -2050,7 +2050,7 @@ _mm256_insert_epi64(__m256i __a, long long __b, int const __imm)
 static __inline __m256d __DEFAULT_FN_ATTRS
 _mm256_cvtepi32_pd(__m128i __a)
 {
-  return (__m256d)__builtin_ia32_cvtdq2pd256((__v4si) __a);
+  return (__m256d)__builtin_convertvector((__v4si)__a, __v4df);
 }
 
 /// \brief Converts a vector of [8 x i32] into a vector of [8 x float].
@@ -2102,13 +2102,13 @@ _mm256_cvtps_epi32(__m256 __a)
 static __inline __m256d __DEFAULT_FN_ATTRS
 _mm256_cvtps_pd(__m128 __a)
 {
-  return (__m256d)__builtin_ia32_cvtps2pd256((__v4sf) __a);
+  return (__m256d)__builtin_convertvector((__v4sf)__a, __v4df);
 }
 
 static __inline __m128i __DEFAULT_FN_ATTRS
 _mm256_cvttpd_epi32(__m256d __a)
 {
-  return (__m128i)__builtin_ia32_cvttpd2dq256((__v4df) __a);
+  return (__m128i)__builtin_convertvector((__v4df) __a, __v4si);
 }
 
 static __inline __m128i __DEFAULT_FN_ATTRS
@@ -2120,7 +2120,26 @@ _mm256_cvtpd_epi32(__m256d __a)
 static __inline __m256i __DEFAULT_FN_ATTRS
 _mm256_cvttps_epi32(__m256 __a)
 {
-  return (__m256i)__builtin_ia32_cvttps2dq256((__v8sf) __a);
+  return (__m256i)__builtin_convertvector((__v8sf) __a, __v8si);
+}
+
+static __inline double __DEFAULT_FN_ATTRS
+_mm256_cvtsd_f64(__m256d __a)
+{
+ return __a[0];
+}
+
+static __inline int __DEFAULT_FN_ATTRS
+_mm256_cvtsi256_si32(__m256i __a)
+{
+ __v8si __b = (__v8si)__a;
+ return __b[0];
+}
+
+static __inline float __DEFAULT_FN_ATTRS
+_mm256_cvtss_f32(__m256 __a)
+{
+ return __a[0];
 }
 
 /* Vector replicate */
@@ -2386,13 +2405,19 @@ _mm256_store_ps(float *__p, __m256 __a)
 static __inline void __DEFAULT_FN_ATTRS
 _mm256_storeu_pd(double *__p, __m256d __a)
 {
-  __builtin_ia32_storeupd256(__p, (__v4df)__a);
+  struct __storeu_pd {
+    __m256d __v;
+  } __attribute__((__packed__, __may_alias__));
+  ((struct __storeu_pd*)__p)->__v = __a;
 }
 
 static __inline void __DEFAULT_FN_ATTRS
 _mm256_storeu_ps(float *__p, __m256 __a)
 {
-  __builtin_ia32_storeups256(__p, (__v8sf)__a);
+  struct __storeu_ps {
+    __m256 __v;
+  } __attribute__((__packed__, __may_alias__));
+  ((struct __storeu_ps*)__p)->__v = __a;
 }
 
 static __inline void __DEFAULT_FN_ATTRS
@@ -2404,7 +2429,10 @@ _mm256_store_si256(__m256i *__p, __m256i __a)
 static __inline void __DEFAULT_FN_ATTRS
 _mm256_storeu_si256(__m256i *__p, __m256i __a)
 {
-  __builtin_ia32_storedqu256((char *)__p, (__v32qi)__a);
+  struct __storeu_si256 {
+    __m256i __v;
+  } __attribute__((__packed__, __may_alias__));
+  ((struct __storeu_si256*)__p)->__v = __a;
 }
 
 /* Conditional load ops */
@@ -2804,35 +2832,22 @@ _mm256_castsi128_si256(__m128i __a)
 static __inline __m256 __DEFAULT_FN_ATTRS
 _mm256_loadu2_m128(float const *__addr_hi, float const *__addr_lo)
 {
-  struct __loadu_ps {
-    __m128 __v;
-  } __attribute__((__packed__, __may_alias__));
-
-  __m256 __v256 = _mm256_castps128_ps256(((struct __loadu_ps*)__addr_lo)->__v);
-  return _mm256_insertf128_ps(__v256, ((struct __loadu_ps*)__addr_hi)->__v, 1);
+  __m256 __v256 = _mm256_castps128_ps256(_mm_loadu_ps(__addr_lo));
+  return _mm256_insertf128_ps(__v256, _mm_loadu_ps(__addr_hi), 1);
 }
 
 static __inline __m256d __DEFAULT_FN_ATTRS
 _mm256_loadu2_m128d(double const *__addr_hi, double const *__addr_lo)
 {
-  struct __loadu_pd {
-    __m128d __v;
-  } __attribute__((__packed__, __may_alias__));
-
-  __m256d __v256 = _mm256_castpd128_pd256(((struct __loadu_pd*)__addr_lo)->__v);
-  return _mm256_insertf128_pd(__v256, ((struct __loadu_pd*)__addr_hi)->__v, 1);
+  __m256d __v256 = _mm256_castpd128_pd256(_mm_loadu_pd(__addr_lo));
+  return _mm256_insertf128_pd(__v256, _mm_loadu_pd(__addr_hi), 1);
 }
 
 static __inline __m256i __DEFAULT_FN_ATTRS
 _mm256_loadu2_m128i(__m128i const *__addr_hi, __m128i const *__addr_lo)
 {
-  struct __loadu_si128 {
-    __m128i __v;
-  } __attribute__((__packed__, __may_alias__));
-  __m256i __v256 = _mm256_castsi128_si256(
-    ((struct __loadu_si128*)__addr_lo)->__v);
-  return _mm256_insertf128_si256(__v256,
-                                 ((struct __loadu_si128*)__addr_hi)->__v, 1);
+  __m256i __v256 = _mm256_castsi128_si256(_mm_loadu_si128(__addr_lo));
+  return _mm256_insertf128_si256(__v256, _mm_loadu_si128(__addr_hi), 1);
 }
 
 /* SIMD store ops (unaligned) */
@@ -2842,9 +2857,9 @@ _mm256_storeu2_m128(float *__addr_hi, float *__addr_lo, __m256 __a)
   __m128 __v128;
 
   __v128 = _mm256_castps256_ps128(__a);
-  __builtin_ia32_storeups(__addr_lo, __v128);
+  _mm_storeu_ps(__addr_lo, __v128);
   __v128 = _mm256_extractf128_ps(__a, 1);
-  __builtin_ia32_storeups(__addr_hi, __v128);
+  _mm_storeu_ps(__addr_hi, __v128);
 }
 
 static __inline void __DEFAULT_FN_ATTRS
@@ -2853,9 +2868,9 @@ _mm256_storeu2_m128d(double *__addr_hi, double *__addr_lo, __m256d __a)
   __m128d __v128;
 
   __v128 = _mm256_castpd256_pd128(__a);
-  __builtin_ia32_storeupd(__addr_lo, __v128);
+  _mm_storeu_pd(__addr_lo, __v128);
   __v128 = _mm256_extractf128_pd(__a, 1);
-  __builtin_ia32_storeupd(__addr_hi, __v128);
+  _mm_storeu_pd(__addr_hi, __v128);
 }
 
 static __inline void __DEFAULT_FN_ATTRS
@@ -2864,9 +2879,9 @@ _mm256_storeu2_m128i(__m128i *__addr_hi, __m128i *__addr_lo, __m256i __a)
   __m128i __v128;
 
   __v128 = _mm256_castsi256_si128(__a);
-  __builtin_ia32_storedqu((char *)__addr_lo, (__v16qi)__v128);
+  _mm_storeu_si128(__addr_lo, __v128);
   __v128 = _mm256_extractf128_si256(__a, 1);
-  __builtin_ia32_storedqu((char *)__addr_hi, (__v16qi)__v128);
+  _mm_storeu_si128(__addr_hi, __v128);
 }
 
 static __inline __m256 __DEFAULT_FN_ATTRS

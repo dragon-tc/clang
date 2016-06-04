@@ -826,6 +826,8 @@ public:
                         llvm::opt::ArgStringList &CmdArgs) const override;
   virtual std::string computeSysRoot() const;
 
+  virtual std::string getDynamicLinker(const llvm::opt::ArgList &Args) const;
+
   std::vector<std::string> ExtraOpts;
 
 protected:
@@ -941,6 +943,7 @@ protected:
 public:
   AMDGPUToolChain(const Driver &D, const llvm::Triple &Triple,
             const llvm::opt::ArgList &Args);
+  unsigned GetDefaultDwarfVersion() const override { return 2; }
   bool IsIntegratedAssemblerDefault() const override { return true; }
 };
 
