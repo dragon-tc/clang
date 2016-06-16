@@ -4152,6 +4152,8 @@ std::string Linux::getDynamicLinker(const ArgList &Args) const {
 
   if (Triple.isAndroid())
     return Triple.isArch64Bit() ? "/system/bin/linker64" : "/system/bin/linker";
+  else if (Triple.getEnvironment() == llvm::Triple::Musl)
+    return "/lib/ld-musl-" + Triple.getArchName().str() + ".so.1";
 
   std::string LibDir;
   std::string Loader;
@@ -4674,8 +4676,10 @@ CudaToolChain::TranslateArgs(const llvm::opt::DerivedArgList &Args,
     DAL->append(A);
   }
 
-  if (BoundArch)
+  if (BoundArch) {
+    DAL->eraseArg(options::OPT_march_EQ);
     DAL->AddJoinedArg(nullptr, Opts.getOption(options::OPT_march_EQ), BoundArch);
+  }
   return DAL;
 }
 

@@ -3767,10 +3767,10 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     // particular compilation pass we're constructing here. For now we
     // can check which toolchain we're using and pick the other one to
     // extract the triple.
-    if (&getToolChain() == C.getCudaDeviceToolChain())
-      AuxToolChain = C.getCudaHostToolChain();
-    else if (&getToolChain() == C.getCudaHostToolChain())
-      AuxToolChain = C.getCudaDeviceToolChain();
+    if (&getToolChain() == C.getSingleOffloadToolChain<Action::OFK_Cuda>())
+      AuxToolChain = C.getOffloadingHostToolChain();
+    else if (&getToolChain() == C.getOffloadingHostToolChain())
+      AuxToolChain = C.getSingleOffloadToolChain<Action::OFK_Cuda>();
     else
       llvm_unreachable("Can't figure out CUDA compilation mode.");
     assert(AuxToolChain != nullptr && "No aux toolchain.");
@@ -5495,7 +5495,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     addExceptionArgs(Args, InputType, getToolChain(), KernelOrKext, objcRuntime,
                      CmdArgs);
 
-  if (getToolChain().UseSjLjExceptions(Args))
+  if (Args.hasArg(options::OPT_fsjlj_exceptions) ||
+      getToolChain().UseSjLjExceptions(Args))
     CmdArgs.push_back("-fsjlj-exceptions");
 
   // C++ "sane" operator new.
@@ -6181,6 +6182,14 @@ void Clang::AddClangCLArgs(const ArgList &Args, types::ID InputType,
   if (Args.hasFlag(options::OPT__SLASH_GR_, options::OPT__SLASH_GR,
                    /*default=*/false))
     CmdArgs.push_back("-fno-rtti-data");
+
+  // This controls whether or not we emit stack-protector instrumentation.
+  // In MSVC, Buffer Security Check (/GS) is on by default.
+  if (Args.hasFlag(options::OPT__SLASH_GS, options::OPT__SLASH_GS_,
+                   /*default=*/true)) {
+    CmdArgs.push_back("-stack-protector");
+    CmdArgs.push_back(Args.MakeArgString(Twine(LangOptions::SSPStrong)));
+  }
 
   // Emit CodeView if -Z7 is present.
   *EmitCodeView = Args.hasArg(options::OPT__SLASH_Z7);
@@ -9124,7 +9133,7 @@ static const char *getLDMOption(const llvm::Triple &T, const ArgList &Args) {
     return "armelf_linux_eabi";
   case llvm::Triple::armeb:
   case llvm::Triple::thumbeb:
-    return "armebelf_linux_eabi"; /* TODO: check which NAME.  */
+    return "armelfb_linux_eabi";
   case llvm::Triple::ppc:
     return "elf32ppclinux";
   case llvm::Triple::ppc64:
@@ -10026,6 +10035,11 @@ std::unique_ptr<Command> visualstudio::Compiler::GetCommand(
   if (Args.hasFlag(options::OPT__SLASH_GR_, options::OPT__SLASH_GR,
                    /*default=*/false))
     CmdArgs.push_back("/GR-");
+
+  if (Args.hasFlag(options::OPT__SLASH_GS_, options::OPT__SLASH_GS,
+                   /*default=*/false))
+    CmdArgs.push_back("/GS-");
+
   if (Arg *A = Args.getLastArg(options::OPT_ffunction_sections,
                                options::OPT_fno_function_sections))
     CmdArgs.push_back(A->getOption().getID() == options::OPT_ffunction_sections
