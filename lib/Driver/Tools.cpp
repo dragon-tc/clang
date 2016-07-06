@@ -9010,7 +9010,7 @@ void gnutools::Assembler::ConstructJob(Compilation &C, const JobAction &JA,
       CmdArgs.push_back("-mcpu=cortex-a15");
     else if ((A = Args.getLastArg(options::OPT_mcpu_EQ)) &&
         StringRef(A->getValue()).lower() == "krait2") {
-      CmdArgs.push_back("-march=armv7-a");
+      CmdArgs.push_back("-mcpu=cortex-a15");
       CmdArgs.push_back("-mfpu=neon-vfpv4");
    } else {
       Args.AddLastArg(CmdArgs, options::OPT_mcpu_EQ);
