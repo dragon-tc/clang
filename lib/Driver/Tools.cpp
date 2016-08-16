@@ -3258,7 +3258,7 @@ static bool shouldUseFramePointerForTarget(const ArgList &Args,
     break;
   }
 
-  if (Triple.isOSLinux()) {
+  if (Triple.isOSLinux() || Triple.getOS() == llvm::Triple::CloudABI) {
     switch (Triple.getArch()) {
     // Don't use a frame pointer on linux if optimizing for certain targets.
     case llvm::Triple::mips64:
@@ -4568,8 +4568,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                                options::OPT_gdwarf_4, options::OPT_gdwarf_5))
     DwarfVersion = DwarfVersionNum(A->getSpelling());
 
-  // Forward -gcodeview.
-  // 'EmitCodeView might have been set by CL-compatibility argument parsing.
+  // Forward -gcodeview. EmitCodeView might have been set by CL-compatibility
+  // argument parsing.
   if (Args.hasArg(options::OPT_gcodeview) || EmitCodeView) {
     // DwarfVersion remains at 0 if no explicit choice was made.
     CmdArgs.push_back("-gcodeview");
@@ -6358,9 +6358,10 @@ void Clang::AddClangCLArgs(const ArgList &Args, types::ID InputType,
     CmdArgs.push_back(Args.MakeArgString(Twine(LangOptions::SSPStrong)));
   }
 
-  // Emit CodeView if -Z7 or -Zd are present.
+  // Emit CodeView if -Z7, -Zd, or -gline-tables-only are present.
   if (Arg *DebugInfoArg =
-          Args.getLastArg(options::OPT__SLASH_Z7, options::OPT__SLASH_Zd)) {
+          Args.getLastArg(options::OPT__SLASH_Z7, options::OPT__SLASH_Zd,
+                          options::OPT_gline_tables_only)) {
     *EmitCodeView = true;
     if (DebugInfoArg->getOption().matches(options::OPT__SLASH_Z7))
       *DebugInfoKind = codegenoptions::LimitedDebugInfo;
@@ -7457,11 +7458,13 @@ void cloudabi::Linker::ConstructJob(Compilation &C, const JobAction &JA,
 
   // CloudABI only supports static linkage.
   CmdArgs.push_back("-Bstatic");
-
-  // CloudABI uses Position Independent Executables exclusively.
-  CmdArgs.push_back("-pie");
   CmdArgs.push_back("--no-dynamic-linker");
-  CmdArgs.push_back("-zrelro");
+
+  // Provide PIE linker flags in case PIE is default for the architecture.
+  if (ToolChain.isPIEDefault()) {
+    CmdArgs.push_back("-pie");
+    CmdArgs.push_back("-zrelro");
+  }
 
   CmdArgs.push_back("--eh-frame-hdr");
   CmdArgs.push_back("--gc-sections");
