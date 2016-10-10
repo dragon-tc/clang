@@ -23,6 +23,19 @@
 #include "llvm/ADT/SmallVector.h"
 using namespace clang;
 
+void Sema::PushForceCUDAHostDevice() {
+  assert(getLangOpts().CUDA && "Should only be called during CUDA compilation");
+  ForceCUDAHostDeviceDepth++;
+}
+
+bool Sema::PopForceCUDAHostDevice() {
+  assert(getLangOpts().CUDA && "Should only be called during CUDA compilation");
+  if (ForceCUDAHostDeviceDepth == 0)
+    return false;
+  ForceCUDAHostDeviceDepth--;
+  return true;
+}
+
 ExprResult Sema::ActOnCUDAExecConfigExpr(Scope *S, SourceLocation LLLLoc,
                                          MultiExprArg ExecConfig,
                                          SourceLocation GGGLoc) {
@@ -143,6 +156,34 @@ Sema::IdentifyCUDAPreference(const FunctionDecl *Caller,
     return CFP_Never;
 
   llvm_unreachable("All cases should've been handled by now.");
+}
+
+void Sema::EraseUnwantedCUDAMatches(const FunctionDecl *Caller,
+                                    LookupResult &R) {
+  if (R.isSingleResult())
+    return;
+
+  // Gets the CUDA function preference for a call from Caller to Match.
+  auto GetCFP = [&](const NamedDecl *D) {
+    if (auto *Callee = dyn_cast<FunctionDecl>(D->getUnderlyingDecl()))
+      return IdentifyCUDAPreference(Caller, Callee);
+    return CFP_Never;
+  };
+
+  // Find the best call preference among the functions in R.
+  CUDAFunctionPreference BestCFP = GetCFP(*std::max_element(
+      R.begin(), R.end(), [&](const NamedDecl *D1, const NamedDecl *D2) {
+        return GetCFP(D1) < GetCFP(D2);
+      }));
+
+  // Erase all functions with lower priority.
+  auto Filter = R.makeFilter();
+  while (Filter.hasNext()) {
+    auto *Callee = dyn_cast<FunctionDecl>(Filter.next()->getUnderlyingDecl());
+    if (Callee && GetCFP(Callee) < BestCFP)
+      Filter.erase();
+  }
+  Filter.done();
 }
 
 template <typename T>
@@ -441,9 +482,23 @@ bool Sema::isEmptyCudaDestructor(SourceLocation Loc, CXXDestructorDecl *DD) {
 //  * a __device__ function with this signature was already declared, in which
 //    case in which case we output an error, unless the __device__ decl is in a
 //    system header, in which case we leave the constexpr function unattributed.
+//
+// In addition, all function decls are treated as __host__ __device__ when
+// ForceCUDAHostDeviceDepth > 0 (corresponding to code within a
+//   #pragma clang force_cuda_host_device_begin/end
+// pair).
 void Sema::maybeAddCUDAHostDeviceAttrs(Scope *S, FunctionDecl *NewD,
                                        const LookupResult &Previous) {
-  assert(getLangOpts().CUDA && "May be called only for CUDA compilations.");
+  assert(getLangOpts().CUDA && "Should only be called during CUDA compilation");
+
+  if (ForceCUDAHostDeviceDepth > 0) {
+    if (!NewD->hasAttr<CUDAHostAttr>())
+      NewD->addAttr(CUDAHostAttr::CreateImplicit(Context));
+    if (!NewD->hasAttr<CUDADeviceAttr>())
+      NewD->addAttr(CUDADeviceAttr::CreateImplicit(Context));
+    return;
+  }
+
   if (!getLangOpts().CUDAHostDeviceConstexpr || !NewD->isConstexpr() ||
       NewD->isVariadic() || NewD->hasAttr<CUDAHostAttr>() ||
       NewD->hasAttr<CUDADeviceAttr>() || NewD->hasAttr<CUDAGlobalAttr>())
@@ -482,8 +537,7 @@ void Sema::maybeAddCUDAHostDeviceAttrs(Scope *S, FunctionDecl *NewD,
 }
 
 bool Sema::CheckCUDACall(SourceLocation Loc, FunctionDecl *Callee) {
-  assert(getLangOpts().CUDA &&
-         "Should only be called during CUDA compilation.");
+  assert(getLangOpts().CUDA && "Should only be called during CUDA compilation");
   assert(Callee && "Callee may not be null.");
   FunctionDecl *Caller = dyn_cast<FunctionDecl>(CurContext);
   if (!Caller)
@@ -496,7 +550,13 @@ bool Sema::CheckCUDACall(SourceLocation Loc, FunctionDecl *Callee) {
     Diag(Callee->getLocation(), diag::note_previous_decl) << Callee;
     return false;
   }
-  if (Pref == Sema::CFP_WrongSide) {
+
+  // Insert into LocsWithCUDADeferredDiags to avoid emitting duplicate deferred
+  // diagnostics for the same location.  Duplicate deferred diags are otherwise
+  // tricky to avoid, because, unlike with regular errors, sema checking
+  // proceeds unhindered when we omit a deferred diagnostic.
+  if (Pref == Sema::CFP_WrongSide &&
+      LocsWithCUDACallDeferredDiags.insert(Loc.getRawEncoding()).second) {
     // We have to do this odd dance to create our PartialDiagnostic because we
     // want its storage to be allocated with operator new, not in an arena.
     PartialDiagnostic ErrPD{PartialDiagnostic::NullDiagnostic()};
@@ -514,4 +574,64 @@ bool Sema::CheckCUDACall(SourceLocation Loc, FunctionDecl *Callee) {
     return true;
   }
   return true;
+}
+
+bool Sema::CheckCUDAExceptionExpr(SourceLocation Loc, StringRef ExprTy) {
+  assert(getLangOpts().CUDA && "Should only be called during CUDA compilation");
+  FunctionDecl *CurFn = dyn_cast<FunctionDecl>(CurContext);
+  if (!CurFn)
+    return true;
+  CUDAFunctionTarget Target = IdentifyCUDATarget(CurFn);
+
+  // Raise an error immediately if this is a __global__ or __device__ function.
+  // If it's a __host__ __device__ function, enqueue a deferred error which will
+  // be emitted if the function is codegen'ed for device.
+  if (Target == CFT_Global || Target == CFT_Device) {
+    Diag(Loc, diag::err_cuda_device_exceptions) << ExprTy << Target << CurFn;
+    return false;
+  }
+  if (Target == CFT_HostDevice && getLangOpts().CUDAIsDevice) {
+    PartialDiagnostic ErrPD{PartialDiagnostic::NullDiagnostic()};
+    ErrPD.Reset(diag::err_cuda_device_exceptions);
+    ErrPD << ExprTy << Target << CurFn;
+    CurFn->addDeferredDiag({Loc, std::move(ErrPD)});
+    return false;
+  }
+  return true;
+}
+
+bool Sema::CheckCUDAVLA(SourceLocation Loc) {
+  assert(getLangOpts().CUDA && "Should only be called during CUDA compilation");
+  FunctionDecl *CurFn = dyn_cast<FunctionDecl>(CurContext);
+  if (!CurFn)
+    return true;
+  CUDAFunctionTarget Target = IdentifyCUDATarget(CurFn);
+  if (Target == CFT_Global || Target == CFT_Device) {
+    Diag(Loc, diag::err_cuda_vla) << Target;
+    return false;
+  }
+  if (Target == CFT_HostDevice && getLangOpts().CUDAIsDevice) {
+    PartialDiagnostic ErrPD{PartialDiagnostic::NullDiagnostic()};
+    ErrPD.Reset(diag::err_cuda_vla);
+    ErrPD << Target;
+    CurFn->addDeferredDiag({Loc, std::move(ErrPD)});
+    return false;
+  }
+  return true;
+}
+
+void Sema::CUDASetLambdaAttrs(CXXMethodDecl *Method) {
+  assert(getLangOpts().CUDA && "Should only be called during CUDA compilation");
+  if (Method->hasAttr<CUDAHostAttr>() || Method->hasAttr<CUDADeviceAttr>())
+    return;
+  FunctionDecl *CurFn = dyn_cast<FunctionDecl>(CurContext);
+  if (!CurFn)
+    return;
+  CUDAFunctionTarget Target = IdentifyCUDATarget(CurFn);
+  if (Target == CFT_Global || Target == CFT_Device) {
+    Method->addAttr(CUDADeviceAttr::CreateImplicit(Context));
+  } else if (Target == CFT_HostDevice) {
+    Method->addAttr(CUDADeviceAttr::CreateImplicit(Context));
+    Method->addAttr(CUDAHostAttr::CreateImplicit(Context));
+  }
 }

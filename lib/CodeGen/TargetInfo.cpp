@@ -3651,7 +3651,17 @@ void WinX86_64ABIInfo::computeInfo(CGFunctionInfo &FI) const {
 
 Address WinX86_64ABIInfo::EmitVAArg(CodeGenFunction &CGF, Address VAListAddr,
                                     QualType Ty) const {
-  return emitVoidPtrVAArg(CGF, VAListAddr, Ty, /*indirect*/ false,
+
+  bool IsIndirect = false;
+
+  // MS x64 ABI requirement: "Any argument that doesn't fit in 8 bytes, or is
+  // not 1, 2, 4, or 8 bytes, must be passed by reference."
+  if (isAggregateTypeForABI(Ty) || Ty->isMemberPointerType()) {
+    uint64_t Width = getContext().getTypeSize(Ty);
+    IsIndirect = Width > 64 || !llvm::isPowerOf2_64(Width);
+  }
+
+  return emitVoidPtrVAArg(CGF, VAListAddr, Ty, IsIndirect,
                           CGF.getContext().getTypeInfoInChars(Ty),
                           CharUnits::fromQuantity(8),
                           /*allowHigherAlign*/ false);
@@ -3889,6 +3899,7 @@ private:
   static const unsigned GPRBits = 64;
   ABIKind Kind;
   bool HasQPX;
+  bool IsSoftFloatABI;
 
   // A vector of float or double will be promoted to <4 x f32> or <4 x f64> and
   // will be passed in a QPX register.
@@ -3919,8 +3930,10 @@ private:
   }
 
 public:
-  PPC64_SVR4_ABIInfo(CodeGen::CodeGenTypes &CGT, ABIKind Kind, bool HasQPX)
-      : ABIInfo(CGT), Kind(Kind), HasQPX(HasQPX) {}
+  PPC64_SVR4_ABIInfo(CodeGen::CodeGenTypes &CGT, ABIKind Kind, bool HasQPX,
+                     bool SoftFloatABI)
+      : ABIInfo(CGT), Kind(Kind), HasQPX(HasQPX),
+        IsSoftFloatABI(SoftFloatABI) {}
 
   bool isPromotableTypeForABI(QualType Ty) const;
   CharUnits getParamTypeAlignment(QualType Ty) const;
@@ -3968,8 +3981,10 @@ class PPC64_SVR4_TargetCodeGenInfo : public TargetCodeGenInfo {
 
 public:
   PPC64_SVR4_TargetCodeGenInfo(CodeGenTypes &CGT,
-                               PPC64_SVR4_ABIInfo::ABIKind Kind, bool HasQPX)
-      : TargetCodeGenInfo(new PPC64_SVR4_ABIInfo(CGT, Kind, HasQPX)) {}
+                               PPC64_SVR4_ABIInfo::ABIKind Kind, bool HasQPX,
+                               bool SoftFloatABI)
+      : TargetCodeGenInfo(new PPC64_SVR4_ABIInfo(CGT, Kind, HasQPX,
+                                                 SoftFloatABI)) {}
 
   int getDwarfEHStackPointer(CodeGen::CodeGenModule &M) const override {
     // This is recovered from gcc output.
@@ -4187,8 +4202,11 @@ bool PPC64_SVR4_ABIInfo::isHomogeneousAggregateBaseType(QualType Ty) const {
   if (const BuiltinType *BT = Ty->getAs<BuiltinType>()) {
     if (BT->getKind() == BuiltinType::Float ||
         BT->getKind() == BuiltinType::Double ||
-        BT->getKind() == BuiltinType::LongDouble)
+        BT->getKind() == BuiltinType::LongDouble) {
+      if (IsSoftFloatABI)
+        return false;
       return true;
+    }
   }
   if (const VectorType *VT = Ty->getAs<VectorType>()) {
     if (getContext().getTypeSize(VT) == 128 || IsQPXVectorTy(Ty))
@@ -4403,14 +4421,17 @@ PPC64_initDwarfEHRegSizeTable(CodeGen::CodeGenFunction &CGF,
   // 32-63: fp0-31, the 8-byte floating-point registers
   AssignToArrayRange(Builder, Address, Eight8, 32, 63);
 
-  // 64-76 are various 4-byte special-purpose registers:
+  // 64-67 are various 8-byte special-purpose registers:
   // 64: mq
   // 65: lr
   // 66: ctr
   // 67: ap
+  AssignToArrayRange(Builder, Address, Eight8, 64, 67);
+
+  // 68-76 are various 4-byte special-purpose registers:
   // 68-75 cr0-7
   // 76: xer
-  AssignToArrayRange(Builder, Address, Four8, 64, 76);
+  AssignToArrayRange(Builder, Address, Four8, 68, 76);
 
   // 77-108: v0-31, the 16-byte vector registers
   AssignToArrayRange(Builder, Address, Sixteen8, 77, 108);
@@ -4420,7 +4441,10 @@ PPC64_initDwarfEHRegSizeTable(CodeGen::CodeGenFunction &CGF,
   // 111: spe_acc
   // 112: spefscr
   // 113: sfp
-  AssignToArrayRange(Builder, Address, Four8, 109, 113);
+  // 114: tfhar
+  // 115: tfiar
+  // 116: texasr
+  AssignToArrayRange(Builder, Address, Eight8, 109, 116);
 
   return false;
 }
@@ -6876,10 +6900,50 @@ public:
 
 namespace {
 
+class AMDGPUABIInfo final : public DefaultABIInfo {
+public:
+  explicit AMDGPUABIInfo(CodeGen::CodeGenTypes &CGT) : DefaultABIInfo(CGT) {}
+
+private:
+  ABIArgInfo classifyArgumentType(QualType Ty) const;
+
+  void computeInfo(CGFunctionInfo &FI) const override;
+};
+
+void AMDGPUABIInfo::computeInfo(CGFunctionInfo &FI) const {
+  if (!getCXXABI().classifyReturnType(FI))
+    FI.getReturnInfo() = classifyReturnType(FI.getReturnType());
+
+  unsigned CC = FI.getCallingConvention();
+  for (auto &Arg : FI.arguments())
+    if (CC == llvm::CallingConv::AMDGPU_KERNEL)
+      Arg.info = classifyArgumentType(Arg.type);
+    else
+      Arg.info = DefaultABIInfo::classifyArgumentType(Arg.type);
+}
+
+/// \brief Classify argument of given type \p Ty.
+ABIArgInfo AMDGPUABIInfo::classifyArgumentType(QualType Ty) const {
+  llvm::StructType *StrTy = dyn_cast<llvm::StructType>(CGT.ConvertType(Ty));
+  if (!StrTy) {
+    return DefaultABIInfo::classifyArgumentType(Ty);
+  }
+
+  // Coerce single element structs to its element.
+  if (StrTy->getNumElements() == 1) {
+    return ABIArgInfo::getDirect();
+  }
+
+  // If we set CanBeFlattened to true, CodeGen will expand the struct to its
+  // individual elements, which confuses the Clover OpenCL backend; therefore we
+  // have to set it to false here. Other args of getDirect() are just defaults.
+  return ABIArgInfo::getDirect(nullptr, 0, nullptr, false);
+}
+
 class AMDGPUTargetCodeGenInfo : public TargetCodeGenInfo {
 public:
   AMDGPUTargetCodeGenInfo(CodeGenTypes &CGT)
-    : TargetCodeGenInfo(new DefaultABIInfo(CGT)) {}
+    : TargetCodeGenInfo(new AMDGPUABIInfo(CGT)) {}
   void setTargetAttributes(const Decl *D, llvm::GlobalValue *GV,
                            CodeGen::CodeGenModule &M) const override;
   unsigned getOpenCLKernelCallingConv() const override;
@@ -6890,30 +6954,59 @@ public:
 static void appendOpenCLVersionMD (CodeGen::CodeGenModule &CGM);
 
 void AMDGPUTargetCodeGenInfo::setTargetAttributes(
-  const Decl *D,
-  llvm::GlobalValue *GV,
-  CodeGen::CodeGenModule &M) const {
+    const Decl *D,
+    llvm::GlobalValue *GV,
+    CodeGen::CodeGenModule &M) const {
   const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(D);
   if (!FD)
     return;
 
-  if (const auto Attr = FD->getAttr<AMDGPUNumVGPRAttr>()) {
-    llvm::Function *F = cast<llvm::Function>(GV);
-    uint32_t NumVGPR = Attr->getNumVGPR();
-    if (NumVGPR != 0)
-      F->addFnAttr("amdgpu_num_vgpr", llvm::utostr(NumVGPR));
+  llvm::Function *F = cast<llvm::Function>(GV);
+
+  if (const auto *Attr = FD->getAttr<AMDGPUFlatWorkGroupSizeAttr>()) {
+    unsigned Min = Attr->getMin();
+    unsigned Max = Attr->getMax();
+
+    if (Min != 0) {
+      assert(Min <= Max && "Min must be less than or equal Max");
+
+      std::string AttrVal = llvm::utostr(Min) + "," + llvm::utostr(Max);
+      F->addFnAttr("amdgpu-flat-work-group-size", AttrVal);
+    } else
+      assert(Max == 0 && "Max must be zero");
   }
 
-  if (const auto Attr = FD->getAttr<AMDGPUNumSGPRAttr>()) {
-    llvm::Function *F = cast<llvm::Function>(GV);
+  if (const auto *Attr = FD->getAttr<AMDGPUWavesPerEUAttr>()) {
+    unsigned Min = Attr->getMin();
+    unsigned Max = Attr->getMax();
+
+    if (Min != 0) {
+      assert((Max == 0 || Min <= Max) && "Min must be less than or equal Max");
+
+      std::string AttrVal = llvm::utostr(Min);
+      if (Max != 0)
+        AttrVal = AttrVal + "," + llvm::utostr(Max);
+      F->addFnAttr("amdgpu-waves-per-eu", AttrVal);
+    } else
+      assert(Max == 0 && "Max must be zero");
+  }
+
+  if (const auto *Attr = FD->getAttr<AMDGPUNumSGPRAttr>()) {
     unsigned NumSGPR = Attr->getNumSGPR();
+
     if (NumSGPR != 0)
-      F->addFnAttr("amdgpu_num_sgpr", llvm::utostr(NumSGPR));
+      F->addFnAttr("amdgpu-num-sgpr", llvm::utostr(NumSGPR));
+  }
+
+  if (const auto *Attr = FD->getAttr<AMDGPUNumVGPRAttr>()) {
+    uint32_t NumVGPR = Attr->getNumVGPR();
+
+    if (NumVGPR != 0)
+      F->addFnAttr("amdgpu-num-vgpr", llvm::utostr(NumVGPR));
   }
 
   appendOpenCLVersionMD(M);
 }
-
 
 unsigned AMDGPUTargetCodeGenInfo::getOpenCLKernelCallingConv() const {
   return llvm::CallingConv::AMDGPU_KERNEL;
@@ -7588,7 +7681,7 @@ void SPIRTargetCodeGenInfo::emitTargetMD(const Decl *D, llvm::GlobalValue *GV,
   appendOpenCLVersionMD(CGM);
 }
 
-static void appendOpenCLVersionMD (CodeGen::CodeGenModule &CGM) {
+static void appendOpenCLVersionMD(CodeGen::CodeGenModule &CGM) {
   llvm::LLVMContext &Ctx = CGM.getModule().getContext();
   llvm::Type *Int32Ty = llvm::Type::getInt32Ty(Ctx);
   llvm::Module &M = CGM.getModule();
@@ -7944,10 +8037,6 @@ static bool getTypeString(SmallStringEnc &Enc, const Decl *D,
 // Driver code
 //===----------------------------------------------------------------------===//
 
-const llvm::Triple &CodeGenModule::getTriple() const {
-  return getTarget().getTriple();
-}
-
 bool CodeGenModule::supportsCOMDAT() const {
   return getTriple().supportsCOMDAT();
 }
@@ -8026,8 +8115,10 @@ const TargetCodeGenInfo &CodeGenModule::getTargetCodeGenInfo() {
       if (getTarget().getABI() == "elfv2")
         Kind = PPC64_SVR4_ABIInfo::ELFv2;
       bool HasQPX = getTarget().getABI() == "elfv1-qpx";
+      bool IsSoftFloat = CodeGenOpts.FloatABI == "soft";
 
-      return SetCGInfo(new PPC64_SVR4_TargetCodeGenInfo(Types, Kind, HasQPX));
+      return SetCGInfo(new PPC64_SVR4_TargetCodeGenInfo(Types, Kind, HasQPX,
+                                                        IsSoftFloat));
     } else
       return SetCGInfo(new PPC64TargetCodeGenInfo(Types));
   case llvm::Triple::ppc64le: {
@@ -8036,8 +8127,10 @@ const TargetCodeGenInfo &CodeGenModule::getTargetCodeGenInfo() {
     if (getTarget().getABI() == "elfv1" || getTarget().getABI() == "elfv1-qpx")
       Kind = PPC64_SVR4_ABIInfo::ELFv1;
     bool HasQPX = getTarget().getABI() == "elfv1-qpx";
+    bool IsSoftFloat = CodeGenOpts.FloatABI == "soft";
 
-    return SetCGInfo(new PPC64_SVR4_TargetCodeGenInfo(Types, Kind, HasQPX));
+    return SetCGInfo(new PPC64_SVR4_TargetCodeGenInfo(Types, Kind, HasQPX,
+                                                      IsSoftFloat));
   }
 
   case llvm::Triple::nvptx:

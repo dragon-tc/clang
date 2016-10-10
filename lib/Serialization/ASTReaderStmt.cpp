@@ -1410,6 +1410,7 @@ void ASTStmtReader::VisitCXXNewExpr(CXXNewExpr *E) {
   VisitExpr(E);
   E->GlobalNew = Record[Idx++];
   bool isArray = Record[Idx++];
+  E->PassAlignment = Record[Idx++];
   E->UsualArrayDeleteWantsSize = Record[Idx++];
   unsigned NumPlacementArgs = Record[Idx++];
   E->StoredInitializationStyle = Record[Idx++];
@@ -1575,6 +1576,7 @@ void ASTStmtReader::VisitArrayTypeTraitExpr(ArrayTypeTraitExpr *E) {
   E->Loc = Range.getBegin();
   E->RParen = Range.getEnd();
   E->QueriedType = GetTypeSourceInfo(Record, Idx);
+  E->Dimension = Reader.ReadSubExpr();
 }
 
 void ASTStmtReader::VisitExpressionTraitExpr(ExpressionTraitExpr *E) {
