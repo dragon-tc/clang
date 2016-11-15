@@ -420,7 +420,7 @@ std::error_code make_error_code(ParseError e) {
   return std::error_code(static_cast<int>(e), getParseCategory());
 }
 
-const char *ParseErrorCategory::name() const LLVM_NOEXCEPT {
+const char *ParseErrorCategory::name() const noexcept {
   return "clang-format.parse_error";
 }
 
@@ -1024,6 +1024,7 @@ public:
         cleanupLeft(Line->First, tok::comma, tok::r_paren);
         cleanupLeft(Line->First, TT_CtorInitializerComma, tok::l_brace);
         cleanupLeft(Line->First, TT_CtorInitializerColon, tok::l_brace);
+        cleanupLeft(Line->First, TT_CtorInitializerColon, tok::equal);
       }
     }
 
@@ -1718,18 +1719,6 @@ cleanupAroundReplacements(StringRef Code, const tooling::Replacements &Replaces,
   return processReplacements(Cleanup, Code, NewReplaces, Style);
 }
 
-tooling::Replacements reformat(const FormatStyle &Style, SourceManager &SM,
-                               FileID ID, ArrayRef<CharSourceRange> Ranges,
-                               bool *IncompleteFormat) {
-  FormatStyle Expanded = expandPresets(Style);
-  if (Expanded.DisableFormat)
-    return tooling::Replacements();
-
-  Environment Env(SM, ID, Ranges);
-  Formatter Format(Env, Expanded, IncompleteFormat);
-  return Format.process();
-}
-
 tooling::Replacements reformat(const FormatStyle &Style, StringRef Code,
                                ArrayRef<tooling::Range> Ranges,
                                StringRef FileName, bool *IncompleteFormat) {
@@ -1757,13 +1746,6 @@ tooling::Replacements reformat(const FormatStyle &Style, StringRef Code,
 
   Formatter Format(*Env, Expanded, IncompleteFormat);
   return Format.process();
-}
-
-tooling::Replacements cleanup(const FormatStyle &Style, SourceManager &SM,
-                              FileID ID, ArrayRef<CharSourceRange> Ranges) {
-  Environment Env(SM, ID, Ranges);
-  Cleaner Clean(Env, Style);
-  return Clean.process();
 }
 
 tooling::Replacements cleanup(const FormatStyle &Style, StringRef Code,

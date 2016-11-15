@@ -659,9 +659,6 @@ bool Sema::MergeCXXFunctionDecl(FunctionDecl *New, FunctionDecl *Old,
     Invalid = true;
   }
 
-  if (CheckEquivalentExceptionSpec(Old, New))
-    Invalid = true;
-
   return Invalid;
 }
 
@@ -1282,7 +1279,9 @@ static bool checkMemberDecomposition(Sema &S, ArrayRef<BindingDecl*> Bindings,
                                                  DecompType.getQualifiers());
 
   auto DiagnoseBadNumberOfBindings = [&]() -> bool {
-    unsigned NumFields = std::distance(RD->field_begin(), RD->field_end());
+    unsigned NumFields =
+        std::count_if(RD->field_begin(), RD->field_end(),
+                      [](FieldDecl *FD) { return !FD->isUnnamedBitfield(); });
     assert(Bindings.size() != NumFields);
     S.Diag(Src->getLocation(), diag::err_decomp_decl_wrong_number_bindings)
         << DecompType << (unsigned)Bindings.size() << NumFields
@@ -5546,7 +5545,8 @@ void Sema::checkClassLevelDLLAttribute(CXXRecordDecl *Class) {
 
       if (MD->isInlined()) {
         // MinGW does not import or export inline methods.
-        if (!Context.getTargetInfo().getCXXABI().isMicrosoft())
+        if (!Context.getTargetInfo().getCXXABI().isMicrosoft() &&
+            !Context.getTargetInfo().getTriple().isWindowsItaniumEnvironment())
           continue;
 
         // MSVC versions before 2015 don't export the move assignment operators
@@ -6657,8 +6657,13 @@ bool SpecialMemberDeletionInfo::shouldDeleteForField(FieldDecl *FD) {
 bool SpecialMemberDeletionInfo::shouldDeleteForAllConstMembers() {
   // This is a silly definition, because it gives an empty union a deleted
   // default constructor. Don't do that.
-  if (CSM == Sema::CXXDefaultConstructor && inUnion() && AllFieldsAreConst &&
-      !MD->getParent()->field_empty()) {
+  if (CSM == Sema::CXXDefaultConstructor && inUnion() && AllFieldsAreConst) {
+    bool AnyFields = false;
+    for (auto *F : MD->getParent()->fields())
+      if ((AnyFields = !F->isUnnamedBitfield()))
+        break;
+    if (!AnyFields)
+      return false;
     if (Diagnose)
       S.Diag(MD->getParent()->getLocation(),
              diag::note_deleted_default_ctor_all_const)
@@ -9462,11 +9467,13 @@ bool Sema::CheckUsingDeclQualifier(SourceLocation UsingLoc,
         return true;
       }
 
-      Diag(SS.getRange().getBegin(),
-           diag::err_using_decl_nested_name_specifier_is_not_base_class)
-        << SS.getScopeRep()
-        << cast<CXXRecordDecl>(CurContext)
-        << SS.getRange();
+      if (!cast<CXXRecordDecl>(NamedContext)->isInvalidDecl()) {
+        Diag(SS.getRange().getBegin(),
+             diag::err_using_decl_nested_name_specifier_is_not_base_class)
+          << SS.getScopeRep()
+          << cast<CXXRecordDecl>(CurContext)
+          << SS.getRange();
+      }
       return true;
     }
 
@@ -12319,13 +12326,20 @@ ExprResult Sema::BuildCXXDefaultInitExpr(SourceLocation Loc, FieldDecl *Field) {
     // Lookup can return at most two results: the pattern for the field, or the
     // injected class name of the parent record. No other member can have the
     // same name as the field.
-    assert(!Lookup.empty() && Lookup.size() <= 2 &&
+    // In modules mode, lookup can return multiple results (coming from
+    // different modules).
+    assert((getLangOpts().Modules || (!Lookup.empty() && Lookup.size() <= 2)) &&
            "more than two lookup results for field name");
     FieldDecl *Pattern = dyn_cast<FieldDecl>(Lookup[0]);
     if (!Pattern) {
       assert(isa<CXXRecordDecl>(Lookup[0]) &&
              "cannot have other non-field member with same name");
-      Pattern = cast<FieldDecl>(Lookup[1]);
+      for (auto L : Lookup)
+        if (isa<FieldDecl>(L)) {
+          Pattern = cast<FieldDecl>(L);
+          break;
+        }
+      assert(Pattern && "We must have set the Pattern!");
     }
 
     if (InstantiateInClassInitializer(Loc, Field, Pattern,
@@ -12748,6 +12762,9 @@ bool Sema::CheckLiteralOperatorDeclaration(FunctionDecl *FnDecl) {
 
   if (FnDecl->isExternC()) {
     Diag(FnDecl->getLocation(), diag::err_literal_operator_extern_c);
+    if (const LinkageSpecDecl *LSD =
+            FnDecl->getDeclContext()->getExternCContext())
+      Diag(LSD->getExternLoc(), diag::note_extern_c_begins_here);
     return true;
   }
 
@@ -13783,10 +13800,9 @@ NamedDecl *Sema::ActOnFriendFunctionDecl(Scope *S, Declarator &D,
     // template in the translation unit.
     if (functionDeclHasDefaultArgument(FD)) {
       // We can't look at FD->getPreviousDecl() because it may not have been set
-      // if we're in a dependent context. If we get this far with a non-empty
-      // Previous set, we must have a valid previous declaration of this
-      // function.
-      if (!Previous.empty()) {
+      // if we're in a dependent context. If the function is known to be a
+      // redeclaration, we will have narrowed Previous down to the right decl.
+      if (D.isRedeclaration()) {
         Diag(FD->getLocation(), diag::err_friend_decl_with_def_arg_redeclared);
         Diag(Previous.getRepresentativeDecl()->getLocation(),
              diag::note_previous_declaration);
@@ -13842,7 +13858,7 @@ void Sema::SetDeclDeleted(Decl *Dcl, SourceLocation DelLoc) {
 
   // See if we're deleting a function which is already known to override a
   // non-deleted virtual function.
-  if (const CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(Fn)) {
+  if (CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(Fn)) {
     bool IssuedDiagnostic = false;
     for (CXXMethodDecl::method_iterator I = MD->begin_overridden_methods(),
                                         E = MD->end_overridden_methods();
@@ -13855,6 +13871,11 @@ void Sema::SetDeclDeleted(Decl *Dcl, SourceLocation DelLoc) {
         Diag((*I)->getLocation(), diag::note_overridden_virtual_function);
       }
     }
+    // If this function was implicitly deleted because it was defaulted,
+    // explain why it was deleted.
+    if (IssuedDiagnostic && MD->isDefaulted())
+      ShouldDeleteSpecialMember(MD, getSpecialMember(MD), nullptr,
+                                /*Diagnose*/true);
   }
 
   // C++11 [basic.start.main]p3:
@@ -13862,6 +13883,9 @@ void Sema::SetDeclDeleted(Decl *Dcl, SourceLocation DelLoc) {
   if (Fn->isMain())
     Diag(DelLoc, diag::err_deleted_main);
 
+  // C++11 [dcl.fct.def.delete]p4:
+  //  A deleted function is implicitly inline.
+  Fn->setImplicitlyInline();
   Fn->setDeletedAsWritten();
 }
 

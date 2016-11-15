@@ -848,6 +848,7 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
     case Stmt::OMPTargetParallelForSimdDirectiveClass:
     case Stmt::OMPTargetSimdDirectiveClass:
     case Stmt::OMPTeamsDistributeDirectiveClass:
+    case Stmt::OMPTeamsDistributeSimdDirectiveClass:
       llvm_unreachable("Stmt should not be in analyzer evaluation loop");
 
     case Stmt::ObjCSubscriptRefExprClass:
@@ -1835,7 +1836,7 @@ void ExprEngine::processSwitch(SwitchNodeBuilder& builder) {
     ProgramStateRef StateCase;
     if (Optional<NonLoc> NL = CondV.getAs<NonLoc>())
       std::tie(StateCase, DefaultSt) =
-          DefaultSt->assumeWithinInclusiveRange(*NL, V1, V2);
+          DefaultSt->assumeInclusiveRange(*NL, V1, V2);
     else // UnknownVal
       StateCase = DefaultSt;
 

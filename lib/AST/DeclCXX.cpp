@@ -739,7 +739,7 @@ void CXXRecordDecl::addedMember(Decl *D) {
     }
 
     if (!Field->hasInClassInitializer() && !Field->isMutable()) {
-      if (CXXRecordDecl *FieldType = Field->getType()->getAsCXXRecordDecl()) {
+      if (CXXRecordDecl *FieldType = T->getAsCXXRecordDecl()) {
         if (FieldType->hasDefinition() && !FieldType->allowConstDefaultInit())
           data().HasUninitializedFields = true;
       } else {
@@ -1797,7 +1797,7 @@ CXXCtorInitializer *CXXCtorInitializer::Create(ASTContext &Context,
                                                VarDecl **Indices,
                                                unsigned NumIndices) {
   void *Mem = Context.Allocate(totalSizeToAlloc<VarDecl *>(NumIndices),
-                               llvm::alignOf<CXXCtorInitializer>());
+                               alignof(CXXCtorInitializer));
   return new (Mem) CXXCtorInitializer(Context, Member, MemberLoc, L, Init, R,
                                       Indices, NumIndices);
 }

@@ -21,7 +21,7 @@
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/FrontendDiagnostic.h"
 #include "clang/Lex/Preprocessor.h"
-#include "llvm/Bitcode/ReaderWriter.h"
+#include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/DiagnosticPrinter.h"
@@ -33,6 +33,8 @@
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/Timer.h"
+#include "llvm/Support/ToolOutputFile.h"
+#include "llvm/Support/YAMLTraits.h"
 #include <memory>
 using namespace clang;
 using namespace llvm;
@@ -181,6 +183,24 @@ namespace clang {
       Ctx.setDiagnosticHandler(DiagnosticHandler, this);
       Ctx.setDiagnosticHotnessRequested(CodeGenOpts.DiagnosticsWithHotness);
 
+      std::unique_ptr<llvm::tool_output_file> OptRecordFile;
+      if (!CodeGenOpts.OptRecordFile.empty()) {
+        std::error_code EC;
+        OptRecordFile =
+          llvm::make_unique<llvm::tool_output_file>(CodeGenOpts.OptRecordFile,
+                                                    EC, sys::fs::F_None);
+        if (EC) {
+          Diags.Report(diag::err_cannot_open_file) <<
+            CodeGenOpts.OptRecordFile << EC.message();
+          return;
+        }
+
+        Ctx.setDiagnosticsOutputFile(new yaml::Output(OptRecordFile->os()));
+
+        if (CodeGenOpts.getProfileUse() != CodeGenOptions::ProfileNone)
+          Ctx.setDiagnosticHotnessRequested(true);
+      }
+
       // Link LinkModule into this module if present, preserving its validity.
       for (auto &I : LinkModules) {
         unsigned LinkFlags = I.first;
@@ -198,6 +218,9 @@ namespace clang {
       Ctx.setInlineAsmDiagnosticHandler(OldHandler, OldContext);
 
       Ctx.setDiagnosticHandler(OldDiagnosticHandler, OldDiagnosticContext);
+
+      if (OptRecordFile)
+        OptRecordFile->keep();
     }
 
     void HandleTagDeclDefinition(TagDecl *D) override {
@@ -748,11 +771,13 @@ CodeGenAction::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
         return nullptr;
       }
 
-      ErrorOr<std::unique_ptr<llvm::Module>> ModuleOrErr =
-          getLazyBitcodeModule(std::move(*BCBuf), *VMContext);
-      if (std::error_code EC = ModuleOrErr.getError()) {
-        CI.getDiagnostics().Report(diag::err_cannot_open_file) << LinkBCFile
-                                                               << EC.message();
+      Expected<std::unique_ptr<llvm::Module>> ModuleOrErr =
+          getOwningLazyBitcodeModule(std::move(*BCBuf), *VMContext);
+      if (!ModuleOrErr) {
+        handleAllErrors(ModuleOrErr.takeError(), [&](ErrorInfoBase &EIB) {
+          CI.getDiagnostics().Report(diag::err_cannot_open_file)
+              << LinkBCFile << EIB.message();
+        });
         LinkModules.clear();
         return nullptr;
       }

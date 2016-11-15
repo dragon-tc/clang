@@ -19,6 +19,7 @@
 #ifndef LLVM_CLANG_TOOLING_CORE_REPLACEMENT_H
 #define LLVM_CLANG_TOOLING_CORE_REPLACEMENT_H
 
+#include "clang/Basic/FileManager.h"
 #include "clang/Basic/LangOptions.h"
 #include "clang/Basic/SourceLocation.h"
 #include "llvm/ADT/StringRef.h"
@@ -230,8 +231,6 @@ private:
   Replacements(const_iterator Begin, const_iterator End)
       : Replaces(Begin, End) {}
 
-  Replacements mergeReplacements(const ReplacementsImpl &Second) const;
-
   // Returns `R` with new range that refers to code after `Replaces` being
   // applied.
   Replacement getReplacementInChangedCode(const Replacement &R) const;
@@ -294,10 +293,12 @@ std::vector<Range>
 calculateRangesAfterReplacements(const Replacements &Replaces,
                                  const std::vector<Range> &Ranges);
 
-/// \brief Groups a random set of replacements by file path. Replacements
-/// related to the same file entry are put into the same vector.
-std::map<std::string, Replacements>
-groupReplacementsByFile(const Replacements &Replaces);
+/// \brief If there are multiple <File, Replacements> pairs with the same file
+/// entry, we only keep one pair and discard the rest.
+/// If a file does not exist, its corresponding replacements will be ignored.
+std::map<std::string, Replacements> groupReplacementsByFile(
+    FileManager &FileMgr,
+    const std::map<std::string, Replacements> &FileToReplaces);
 
 template <typename Node>
 Replacement::Replacement(const SourceManager &Sources,

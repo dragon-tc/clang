@@ -21,6 +21,7 @@
 #include "CodeGenModule.h"
 #include "CodeGenPGO.h"
 #include "EHScopeStack.h"
+#include "VarBypassDetector.h"
 #include "clang/AST/CharUnits.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/ExprObjC.h"
@@ -77,6 +78,7 @@ class ObjCAutoreleasePoolStmt;
 
 namespace CodeGen {
 class CodeGenTypes;
+class CGCallee;
 class CGFunctionInfo;
 class CGRecordLayout;
 class CGBlockInfo;
@@ -140,6 +142,10 @@ public:
   typedef std::pair<llvm::Value *, llvm::Value *> ComplexPairTy;
   LoopInfoStack LoopStack;
   CGBuilderTy Builder;
+
+  // Stores variables for which we can't generate correct lifetime markers
+  // because of jumps.
+  VarBypassDetector Bypasses;
 
   /// \brief CGBuilder insert helper. This function is called after an
   /// instruction is created using Builder.
@@ -441,7 +447,7 @@ public:
     LifetimeExtendedCleanupStack.resize(
         LifetimeExtendedCleanupStack.size() + sizeof(Header) + Header.Size);
 
-    static_assert(sizeof(Header) % llvm::AlignOf<T>::Alignment == 0,
+    static_assert(sizeof(Header) % alignof(T) == 0,
                   "Cleanup will be allocated on misaligned address");
     char *Buffer = &LifetimeExtendedCleanupStack[OldSize];
     new (Buffer) LifetimeExtendedCleanupHeader(Header);
@@ -976,6 +982,35 @@ private:
   };
   SmallVector<BreakContinue, 8> BreakContinueStack;
 
+  /// Data for exit block for proper support of OpenMP cancellation constructs.
+  struct OMPCancel {
+    JumpDest ExitBlock;
+    llvm::function_ref<void(CodeGenFunction &CGF)> CodeGen;
+    OMPCancel() : CodeGen([](CodeGenFunction &CGF) {}) {}
+  };
+  SmallVector<OMPCancel, 8> OMPCancelStack;
+
+  /// Controls insertion of cancellation exit blocks in worksharing constructs.
+  class OMPCancelStackRAII {
+    CodeGenFunction &CGF;
+
+  public:
+    OMPCancelStackRAII(CodeGenFunction &CGF) : CGF(CGF) {
+      CGF.OMPCancelStack.push_back({});
+    }
+    ~OMPCancelStackRAII() {
+      if (CGF.HaveInsertPoint() &&
+          CGF.OMPCancelStack.back().ExitBlock.isValid()) {
+        auto CJD = CGF.getJumpDestInCurrentScope("cancel.cont");
+        CGF.EmitBranchThroughCleanup(CJD);
+        CGF.EmitBlock(CGF.OMPCancelStack.back().ExitBlock.getBlock());
+        CGF.OMPCancelStack.back().CodeGen(CGF);
+        CGF.EmitBranchThroughCleanup(CJD);
+        CGF.EmitBlock(CJD.getBlock());
+      }
+    }
+  };
+
   CodeGenPGO PGO;
 
   /// Calculate branch weights appropriate for PGO data
@@ -1185,6 +1220,9 @@ private:
   llvm::BasicBlock *TerminateLandingPad;
   llvm::BasicBlock *TerminateHandler;
   llvm::BasicBlock *TrapBB;
+
+  /// True if we need emit the life-time markers.
+  const bool ShouldEmitLifetimeMarkers;
 
   /// Add a kernel metadata node to the named metadata node 'opencl.kernels'.
   /// In the kernel metadata node, reference the kernel function and metadata 
@@ -1426,7 +1464,8 @@ public:
   void StartThunk(llvm::Function *Fn, GlobalDecl GD,
                   const CGFunctionInfo &FnInfo);
 
-  void EmitCallAndReturnForThunk(llvm::Value *Callee, const ThunkInfo *Thunk);
+  void EmitCallAndReturnForThunk(llvm::Constant *Callee,
+                                 const ThunkInfo *Thunk);
 
   void FinishThunk();
 
@@ -2103,6 +2142,10 @@ public:
                                       OffsetValue);
   }
 
+  /// Converts Location to a DebugLoc, if debug information is enabled.
+  llvm::DebugLoc SourceLocToDebugLoc(SourceLocation Location);
+
+
   //===--------------------------------------------------------------------===//
   //                            Declaration Emission
   //===--------------------------------------------------------------------===//
@@ -2119,7 +2162,6 @@ public:
 
   void EmitScalarInit(const Expr *init, const ValueDecl *D, LValue lvalue,
                       bool capturedByInit);
-  void EmitScalarInit(llvm::Value *init, LValue lvalue);
 
   typedef void SpecialInitFn(CodeGenFunction &Init, const VarDecl &D,
                              llvm::Value *Address);
@@ -2302,6 +2344,7 @@ public:
   void EmitObjCAtSynchronizedStmt(const ObjCAtSynchronizedStmt &S);
   void EmitObjCAutoreleasePoolStmt(const ObjCAutoreleasePoolStmt &S);
 
+  void EmitCoroutineBody(const CoroutineBodyStmt &S);
   RValue EmitCoroutineIntrinsic(const CallExpr *E, unsigned int IID);
 
   void EnterCXXTryStmt(const CXXTryStmt &S, bool IsFnTryBlock = false);
@@ -2527,6 +2570,8 @@ public:
       const OMPTargetParallelForSimdDirective &S);
   void EmitOMPTargetSimdDirective(const OMPTargetSimdDirective &S);
   void EmitOMPTeamsDistributeDirective(const OMPTeamsDistributeDirective &S);
+  void
+  EmitOMPTeamsDistributeSimdDirective(const OMPTeamsDistributeSimdDirective &S);
 
   /// Emit outlined function for the target directive.
   static std::pair<llvm::Function * /*OutlinedFn*/,
@@ -2833,17 +2878,17 @@ public:
   /// EmitCall - Generate a call of the given function, expecting the given
   /// result type, and using the given argument list which specifies both the
   /// LLVM arguments and the types they were derived from.
-  RValue EmitCall(const CGFunctionInfo &FnInfo, llvm::Value *Callee,
+  RValue EmitCall(const CGFunctionInfo &CallInfo, const CGCallee &Callee,
                   ReturnValueSlot ReturnValue, const CallArgList &Args,
-                  CGCalleeInfo CalleeInfo = CGCalleeInfo(),
                   llvm::Instruction **callOrInvoke = nullptr);
 
-  RValue EmitCall(QualType FnType, llvm::Value *Callee, const CallExpr *E,
+  RValue EmitCall(QualType FnType, const CGCallee &Callee, const CallExpr *E,
                   ReturnValueSlot ReturnValue,
-                  CGCalleeInfo CalleeInfo = CGCalleeInfo(),
                   llvm::Value *Chain = nullptr);
   RValue EmitCallExpr(const CallExpr *E,
                       ReturnValueSlot ReturnValue = ReturnValueSlot());
+  RValue EmitSimpleCallExpr(const CallExpr *E, ReturnValueSlot ReturnValue);
+  CGCallee EmitCallee(const Expr *E);
 
   void checkTargetFeatures(const CallExpr *E, const FunctionDecl *TargetDecl);
 
@@ -2869,21 +2914,23 @@ public:
   void EmitNoreturnRuntimeCallOrInvoke(llvm::Value *callee,
                                        ArrayRef<llvm::Value*> args);
 
-  llvm::Value *BuildAppleKextVirtualCall(const CXXMethodDecl *MD, 
-                                         NestedNameSpecifier *Qual,
-                                         llvm::Type *Ty);
+  CGCallee BuildAppleKextVirtualCall(const CXXMethodDecl *MD, 
+                                     NestedNameSpecifier *Qual,
+                                     llvm::Type *Ty);
   
-  llvm::Value *BuildAppleKextVirtualDestructorCall(const CXXDestructorDecl *DD,
-                                                   CXXDtorType Type, 
-                                                   const CXXRecordDecl *RD);
+  CGCallee BuildAppleKextVirtualDestructorCall(const CXXDestructorDecl *DD,
+                                               CXXDtorType Type, 
+                                               const CXXRecordDecl *RD);
 
   RValue
-  EmitCXXMemberOrOperatorCall(const CXXMethodDecl *MD, llvm::Value *Callee,
+  EmitCXXMemberOrOperatorCall(const CXXMethodDecl *Method,
+                              const CGCallee &Callee,
                               ReturnValueSlot ReturnValue, llvm::Value *This,
                               llvm::Value *ImplicitParam,
                               QualType ImplicitParamTy, const CallExpr *E,
                               CallArgList *RtlArgs);
-  RValue EmitCXXDestructorCall(const CXXDestructorDecl *DD, llvm::Value *Callee,
+  RValue EmitCXXDestructorCall(const CXXDestructorDecl *DD,
+                               const CGCallee &Callee,
                                llvm::Value *This, llvm::Value *ImplicitParam,
                                QualType ImplicitParamTy, const CallExpr *E,
                                StructorType Type);
@@ -2906,6 +2953,7 @@ public:
   RValue EmitCXXOperatorMemberCallExpr(const CXXOperatorCallExpr *E,
                                        const CXXMethodDecl *MD,
                                        ReturnValueSlot ReturnValue);
+  RValue EmitCXXPseudoDestructorExpr(const CXXPseudoDestructorExpr *E);
 
   RValue EmitCUDAKernelCallExpr(const CUDAKernelCallExpr *E,
                                 ReturnValueSlot ReturnValue);
@@ -2960,6 +3008,12 @@ public:
   llvm::Value *EmitNVPTXBuiltinExpr(unsigned BuiltinID, const CallExpr *E);
   llvm::Value *EmitWebAssemblyBuiltinExpr(unsigned BuiltinID,
                                           const CallExpr *E);
+
+private:
+  enum class MSVCIntrin;
+
+public:
+  llvm::Value *EmitMSVCBuiltinExpr(MSVCIntrin BuiltinID, const CallExpr *E);
 
   llvm::Value *EmitObjCProtocolExpr(const ObjCProtocolExpr *E);
   llvm::Value *EmitObjCStringLiteral(const ObjCStringLiteral *E);
