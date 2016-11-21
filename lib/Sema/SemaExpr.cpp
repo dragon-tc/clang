@@ -4522,6 +4522,11 @@ ExprResult Sema::BuildCXXDefaultArgExpr(SourceLocation CallLoc,
                                MutiLevelArgList.getInnermost());
     if (Inst.isInvalid())
       return ExprError();
+    if (Inst.isAlreadyInstantiating()) {
+      Diag(Param->getLocStart(), diag::err_recursive_default_argument) << FD;
+      Param->setInvalidDecl();
+      return ExprError();
+    }
 
     ExprResult Result;
     {
@@ -8567,7 +8572,7 @@ static void DiagnoseBadShiftValues(Sema& S, ExprResult &LHS, ExprResult &RHS,
 
   // If LHS does not have a signed type and non-negative value
   // then, the behavior is undefined. Warn about it.
-  if (Left.isNegative()) {
+  if (Left.isNegative() && !S.getLangOpts().isSignedOverflowDefined()) {
     S.DiagRuntimeBehavior(Loc, LHS.get(),
                           S.PDiag(diag::warn_shift_lhs_negative)
                             << LHS.get()->getSourceRange());
@@ -13880,7 +13885,8 @@ static void DoMarkVarDeclReferenced(Sema &SemaRef, SourceLocation Loc,
         (SemaRef.CurContext != Var->getDeclContext() &&
          Var->getDeclContext()->isFunctionOrMethod() && Var->hasLocalStorage());
     if (RefersToEnclosingScope) {
-      if (LambdaScopeInfo *const LSI = SemaRef.getCurLambda()) {
+      if (LambdaScopeInfo *const LSI =
+              SemaRef.getCurLambda(/*IgnoreCapturedRegions=*/true)) {
         // If a variable could potentially be odr-used, defer marking it so
         // until we finish analyzing the full expression for any
         // lvalue-to-rvalue
