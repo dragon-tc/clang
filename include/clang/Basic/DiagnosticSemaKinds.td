@@ -3020,6 +3020,10 @@ def warn_int_to_void_pointer_cast : Warning<
   "cast to %1 from smaller integer type %0">,
   InGroup<IntToVoidPointerCast>;
 
+def warn_no_underlying_type_specified_for_enum_bitfield : Warning<
+  "enums in the Microsoft ABI are signed integers by default; consider giving "
+  "the enum %0 an unsigned underlying type to make this code portable">,
+  InGroup<SignedEnumBitfield>, DefaultIgnore;
 def warn_attribute_packed_for_bitfield : Warning<
   "'packed' attribute was ignored on bit-fields with single-byte alignment "
   "in older versions of GCC and Clang">,
@@ -8027,6 +8031,9 @@ def err_unsupported_unknown_any_call : Error<
 def err_unknown_any_addrof : Error<
   "the address of a declaration with unknown type "
   "can only be cast to a pointer type">;
+def err_unknown_any_addrof_call : Error<
+  "address-of operator cannot be applied to a call to a function with "
+  "unknown return type">;
 def err_unknown_any_var_function_type : Error<
   "variable %0 with unknown type cannot be given a function type">;
 def err_unknown_any_function : Error<
