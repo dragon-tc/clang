@@ -88,7 +88,7 @@ static llvm::Constant *buildBlockDescriptor(CodeGenModule &CGM,
   else
     i8p = CGM.VoidPtrTy;
 
-  ConstantBuilder builder(CGM);
+  ConstantInitBuilder builder(CGM);
   auto elements = builder.beginStruct();
 
   // reserved
@@ -188,9 +188,6 @@ static llvm::Constant *buildBlockDescriptor(CodeGenModule &CGM,
     _CapturesTypes captures...;
   };
  */
-
-/// The number of fields in a block header.
-const static unsigned BlockHeaderSize = 5;
 
 namespace {
   /// A chunk of data that we actually have to capture in the block.
@@ -319,8 +316,6 @@ static void initializeForBlockHeader(CodeGenModule &CGM, CGBlockInfo &info,
   elementTypes.push_back(CGM.IntTy);
   elementTypes.push_back(CGM.VoidPtrTy);
   elementTypes.push_back(CGM.getBlockDescriptorType());
-
-  assert(elementTypes.size() == BlockHeaderSize);
 }
 
 /// Compute the layout of the given block.  Attempts to lay the block
@@ -1081,7 +1076,7 @@ static llvm::Constant *buildGlobalBlock(CodeGenModule &CGM,
   assert(blockInfo.CanBeGlobal);
 
   // Generate the constants for the block literal initializer.
-  ConstantBuilder builder(CGM);
+  ConstantInitBuilder builder(CGM);
   auto fields = builder.beginStruct();
 
   // isa
@@ -1946,7 +1941,7 @@ static T *buildByrefHelpers(CodeGenModule &CGM, const BlockByrefInfo &byrefInfo,
   generator.CopyHelper = buildByrefCopyHelper(CGM, byrefInfo, generator);
   generator.DisposeHelper = buildByrefDisposeHelper(CGM, byrefInfo, generator);
 
-  T *copy = new (CGM.getContext()) T(std::move(generator));
+  T *copy = new (CGM.getContext()) T(std::forward<T>(generator));
   CGM.ByrefHelpersCache.InsertNode(copy, insertPos);
   return copy;
 }

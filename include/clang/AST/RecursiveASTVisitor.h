@@ -357,7 +357,8 @@ public:
 #define OPERATOR(NAME)                                                         \
   bool TraverseUnary##NAME(UnaryOperator *S,                                   \
                            DataRecursionQueue *Queue = nullptr) {              \
-    TRY_TO(WalkUpFromUnary##NAME(S));                                          \
+    if (!getDerived().shouldTraversePostOrder())                               \
+      TRY_TO(WalkUpFromUnary##NAME(S));                                        \
     TRY_TO_TRAVERSE_OR_ENQUEUE_STMT(S->getSubExpr());                          \
     return true;                                                               \
   }                                                                            \
@@ -2628,6 +2629,9 @@ DEF_TRAVERSE_STMT(OMPTeamsDistributeDirective,
                   { TRY_TO(TraverseOMPExecutableDirective(S)); })
 
 DEF_TRAVERSE_STMT(OMPTeamsDistributeSimdDirective,
+                  { TRY_TO(TraverseOMPExecutableDirective(S)); })
+
+DEF_TRAVERSE_STMT(OMPTeamsDistributeParallelForSimdDirective,
                   { TRY_TO(TraverseOMPExecutableDirective(S)); })
 
 // OpenMP clauses.
