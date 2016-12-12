@@ -35,7 +35,7 @@ namespace dr102 { // dr102: yes
 }
 
 // dr103: na
-// dr104 FIXME: add codegen test
+// dr104: na lib
 // dr105: na
 
 namespace dr106 { // dr106: sup 540
@@ -202,7 +202,7 @@ namespace dr116 { // dr116: yes
 }
 
 // dr117: na
-// dr118 FIXME: add codegen test
+// dr118 is in its own file.
 // dr119: na
 // dr120: na
 
@@ -239,6 +239,7 @@ namespace dr125 {
 }
 
 namespace dr126 { // dr126: no
+#if __cplusplus <= 201402L
   struct C {};
   struct D : C {};
   struct E : private C { friend class A; friend class B; };
@@ -311,12 +312,15 @@ namespace dr126 { // dr126: no
     virtual void y() throw(int*); // ok
     virtual void z() throw(long); // expected-error {{more lax}}
   };
+#else
+  void f() throw(int); // expected-error {{ISO C++1z does not allow}} expected-note {{use 'noexcept}}
+#endif
 }
 
 namespace dr127 { // dr127: yes
   __extension__ typedef __decltype(sizeof(0)) size_t;
   template<typename T> struct A {
-    A() throw(int);
+    A() { throw 0; }
     void *operator new(size_t, const char * = 0);
     void operator delete(void *, const char *) { T::error; } // expected-error 2{{no members}}
     void operator delete(void *) { T::error; }
@@ -604,7 +608,7 @@ namespace dr155 { // dr155: dup 632
   struct S { int n; } s = { { 1 } }; // expected-warning {{braces around scalar initializer}}
 }
 
-// dr158 FIXME write codegen test
+// dr158 is in its own file.
 
 namespace dr159 { // dr159: 3.5
   namespace X { void f(); }
