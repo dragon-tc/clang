@@ -2297,6 +2297,9 @@ def warn_attribute_pointers_only : Warning<
   "%0 attribute only applies to%select{| constant}1 pointer arguments">,
   InGroup<IgnoredAttributes>;
 def err_attribute_pointers_only : Error<warn_attribute_pointers_only.Text>;
+def err_attribute_integers_only : Error<
+  "%0 attribute argument may only refer to a function parameter of integer "
+  "type">;
 def warn_attribute_return_pointers_only : Warning<
   "%0 attribute only applies to return values that are pointers">,
   InGroup<IgnoredAttributes>;
@@ -2927,7 +2930,7 @@ def warn_impcast_integer_precision_constant : Warning<
   "implicit conversion from %2 to %3 changes value from %0 to %1">,
   InGroup<ConstantConversion>;
 def warn_impcast_bitfield_precision_constant : Warning<
-  "implicit truncation from %2 to bitfield changes value from %0 to %1">,
+  "implicit truncation from %2 to bit-field changes value from %0 to %1">,
   InGroup<BitFieldConstantConversion>;
 
 def warn_impcast_literal_float_to_integer : Warning<
@@ -3359,6 +3362,8 @@ def note_ovl_candidate_has_pass_object_size_params: Note<
     "pass_object_size attribute">;
 def note_ovl_candidate_disabled_by_enable_if_attr : Note<
     "candidate disabled: %0">;
+def note_ovl_candidate_disabled_by_extension : Note<
+    "candidate disabled due to OpenCL extension">;
 def err_addrof_function_disabled_by_enable_if_attr : Error<
     "cannot take address of function %0 becuase it has one or more "
     "non-tautological enable_if conditions">;
@@ -7936,8 +7941,6 @@ def ext_c99_array_usage : Extension<
 def err_c99_array_usage_cxx : Error<
   "%select{qualifier in |static |}0array size %select{||'[*] '}0is a C99 "
   "feature, not permitted in C++">;
- def err_type_requires_extension : Error<
-  "use of type %0 requires %1 extension to be enabled">;
 def err_type_unsupported : Error<
   "%0 is not supported on this target">;
 def err_nsconsumed_attribute_mismatch : Error<
@@ -8085,7 +8088,7 @@ def err_opencl_function_variable : Error<
 def err_static_function_scope : Error<
   "variables in function scope cannot be declared static">;
 def err_opencl_bitfields : Error<
-  "bitfields are not supported in OpenCL">;
+  "bit-fields are not supported in OpenCL">;
 def err_opencl_vla : Error<
   "variable length arrays are not supported in OpenCL">;
 def err_bad_kernel_param_type : Error<
@@ -8143,6 +8146,8 @@ def warn_opencl_attr_deprecated_ignored : Warning <
   InGroup<IgnoredAttributes>;
 def err_opencl_variadic_function : Error<
   "invalid prototype, variadic arguments are not allowed in OpenCL">;
+def err_opencl_requires_extension : Error<
+  "use of %select{type |declaration}0%1 requires %2 extension to be enabled">;
 
 // OpenCL v2.0 s6.13.6 -- Builtin Pipe Functions
 def err_opencl_builtin_pipe_first_arg : Error<
@@ -8768,6 +8773,10 @@ def warn_nullability_missing_array : Warning<
   "array parameter is missing a nullability type specifier (_Nonnull, "
   "_Nullable, or _Null_unspecified)">,
   InGroup<NullabilityCompletenessOnArrays>;
+def note_nullability_fix_it : Note<
+  "insert '%select{_Nonnull|_Nullable|_Null_unspecified}0' if the "
+  "%select{pointer|block pointer|member pointer|array parameter}1 "
+  "%select{should never be null|may be null|should not declare nullability}0">;
 
 def warn_nullability_inferred_on_nested_type : Warning<
   "inferring '_Nonnull' for pointer type within %select{array|reference}0 is "
