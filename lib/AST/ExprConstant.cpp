@@ -201,7 +201,7 @@ namespace {
     unsigned IsOnePastTheEnd : 1;
 
     /// Indicator of whether the first entry is an unsized array.
-    bool FirstEntryIsAnUnsizedArray : 1;
+    unsigned FirstEntryIsAnUnsizedArray : 1;
 
     /// Indicator of whether the most-derived object is an array element.
     unsigned MostDerivedIsArrayElement : 1;
@@ -262,7 +262,8 @@ namespace {
     /// Determine whether the most derived subobject is an array without a
     /// known bound.
     bool isMostDerivedAnUnsizedArray() const {
-      return FirstEntryIsAnUnsizedArray && Entries.size() == 1;
+      assert(!Invalid && "Calling this makes no sense on invalid designators");
+      return Entries.size() == 1 && FirstEntryIsAnUnsizedArray;
     }
 
     /// Determine what the most derived array's size is. Results in an assertion
@@ -2902,7 +2903,7 @@ static CompleteObject findCompleteObject(EvalInfo &Info, const Expr *E,
         // All the remaining cases only permit reading.
         Info.FFDiag(E, diag::note_constexpr_modify_global);
         return CompleteObject();
-      } else if (VD->isConstexpr() || BaseType.isConstQualified()) {
+      } else if (VD->isConstexpr()) {
         // OK, we can read this variable.
       } else if (BaseType->isIntegralOrEnumerationType()) {
         // In OpenCL if a variable is in constant address space it is a const value.
@@ -2927,6 +2928,9 @@ static CompleteObject findCompleteObject(EvalInfo &Info, const Expr *E,
         } else {
           Info.CCEDiag(E);
         }
+      } else if (BaseType.isConstQualified() && VD->hasDefinition(Info.Ctx)) {
+        Info.CCEDiag(E, diag::note_constexpr_ltor_non_constexpr) << VD;
+        // Keep evaluating to see what we can do.
       } else {
         // FIXME: Allow folding of values of any literal type in all languages.
         if (Info.checkingPotentialConstantExpression() &&
@@ -7130,8 +7134,11 @@ static bool isDesignatorAtObjectEnd(const ASTContext &Ctx, const LValue &LVal) {
 /// an unsized array as its first designator entry, because there's currently no
 /// way to tell if the user typed *foo or foo[0].
 static bool refersToCompleteObject(const LValue &LVal) {
-  if (LVal.Designator.Invalid || !LVal.Designator.Entries.empty())
+  if (LVal.Designator.Invalid)
     return false;
+
+  if (!LVal.Designator.Entries.empty())
+    return LVal.Designator.isMostDerivedAnUnsizedArray();
 
   if (!LVal.InvalidBase)
     return true;
@@ -7183,20 +7190,20 @@ static bool convertUnsignedAPIntToCharUnits(const llvm::APInt &Int,
 static bool determineEndOffset(EvalInfo &Info, SourceLocation ExprLoc,
                                unsigned Type, const LValue &LVal,
                                CharUnits &EndOffset) {
-  // __builtin_object_size(&foo, N) == __builtin_object_size(&foo, (N & ~1U)).
-  // (Where foo is an expression that has no designator). Hence, if we've no
-  // designator, we can ignore the subobject bit.
-  bool EvaluateAsCompleteObject =
-      !(Type & 1) || LVal.Designator.isMostDerivedAnUnsizedArray() ||
-      refersToCompleteObject(LVal);
+  bool DetermineForCompleteObject = refersToCompleteObject(LVal);
+
+  auto CheckedHandleSizeof = [&](QualType Ty, CharUnits &Result) {
+    if (Ty.isNull() || Ty->isIncompleteType() || Ty->isFunctionType())
+      return false;
+    return HandleSizeof(Info, ExprLoc, Ty, Result);
+  };
 
   // We want to evaluate the size of the entire object. This is a valid fallback
   // for when Type=1 and the designator is invalid, because we're asked for an
   // upper-bound.
-  if (LVal.Designator.Invalid || EvaluateAsCompleteObject) {
-    // We can't give a correct lower bound for Type=3 if the designator is
-    // invalid and we're meant to be evaluating it.
-    if (Type == 3 && LVal.Designator.Invalid && !EvaluateAsCompleteObject)
+  if (!(Type & 1) || LVal.Designator.Invalid || DetermineForCompleteObject) {
+    // Type=3 wants a lower bound, so we can't fall back to this.
+    if (Type == 3 && !DetermineForCompleteObject)
       return false;
 
     llvm::APInt APEndOffset;
@@ -7208,7 +7215,7 @@ static bool determineEndOffset(EvalInfo &Info, SourceLocation ExprLoc,
       return false;
 
     QualType BaseTy = getObjectType(LVal.getLValueBase());
-    return !BaseTy.isNull() && HandleSizeof(Info, ExprLoc, BaseTy, EndOffset);
+    return CheckedHandleSizeof(BaseTy, EndOffset);
   }
 
   // We want to evaluate the size of a subobject.
@@ -7237,7 +7244,7 @@ static bool determineEndOffset(EvalInfo &Info, SourceLocation ExprLoc,
   }
 
   CharUnits BytesPerElem;
-  if (!HandleSizeof(Info, ExprLoc, Designator.MostDerivedType, BytesPerElem))
+  if (!CheckedHandleSizeof(Designator.MostDerivedType, BytesPerElem))
     return false;
 
   // According to the GCC documentation, we want the size of the subobject
@@ -8592,6 +8599,7 @@ bool IntExprEvaluator::VisitCastExpr(const CastExpr *E) {
   case CK_IntegralComplexToFloatingComplex:
   case CK_BuiltinFnToFnPtr:
   case CK_ZeroToOCLEvent:
+  case CK_ZeroToOCLQueue:
   case CK_NonAtomicToAtomic:
   case CK_AddressSpaceConversion:
   case CK_IntToOCLSampler:
@@ -9089,6 +9097,7 @@ bool ComplexExprEvaluator::VisitCastExpr(const CastExpr *E) {
   case CK_CopyAndAutoreleaseBlockObject:
   case CK_BuiltinFnToFnPtr:
   case CK_ZeroToOCLEvent:
+  case CK_ZeroToOCLQueue:
   case CK_NonAtomicToAtomic:
   case CK_AddressSpaceConversion:
   case CK_IntToOCLSampler:

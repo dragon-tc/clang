@@ -190,6 +190,24 @@ void foo() {
 #pragma omp target teams // OK
     ++a;
   }
+#pragma omp parallel
+  {
+#pragma omp target teams distribute // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp parallel
+  {
+#pragma omp target teams distribute parallel for // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp parallel
+  {
+#pragma omp target teams distribute parallel for simd // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
 
 // SIMD DIRECTIVE
 #pragma omp simd
@@ -417,7 +435,25 @@ void foo() {
 #pragma omp target teams // expected-error {{OpenMP constructs may not be nested inside a simd region}}
     ++a;
   }
-
+#pragma omp simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
+#pragma omp simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
+#pragma omp simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
+  
 // FOR DIRECTIVE
 #pragma omp for
   for (int i = 0; i < 10; ++i) {
@@ -657,6 +693,24 @@ void foo() {
 #pragma omp target teams // OK
     ++a;
   }
+#pragma omp for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // OK
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
+#pragma omp for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // OK
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
+#pragma omp for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // OK
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
 
 // FOR SIMD DIRECTIVE
 #pragma omp for simd
@@ -884,6 +938,24 @@ void foo() {
   for (int i = 0; i < 10; ++i) {
 #pragma omp target teams // expected-error {{OpenMP constructs may not be nested inside a simd region}}
     a++;
+  }
+#pragma omp for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
+#pragma omp for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
+#pragma omp for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int j = 0; j < 10; ++j)
+      ;
   }
 
 // SECTIONS DIRECTIVE
@@ -1129,6 +1201,24 @@ void foo() {
   {
 #pragma omp target teams // OK
     ++a;
+  }
+#pragma omp sections
+  {
+#pragma omp target teams distribute // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp sections
+  {
+#pragma omp target teams distribute parallel for // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp sections
+  {
+#pragma omp target teams distribute parallel for simd // OK
+    for (int i = 0; i < 10; ++i)
+      ;
   }
 
 // SECTION DIRECTIVE
@@ -1438,6 +1528,27 @@ void foo() {
 #pragma omp target teams // OK
     ++a;
   }
+#pragma omp sections
+  {
+#pragma omp section
+#pragma omp target teams distribute // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp sections
+  {
+#pragma omp section
+#pragma omp target teams distribute parallel for // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp sections
+  {
+#pragma omp section
+#pragma omp target teams distribute parallel for simd // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
 
 // SINGLE DIRECTIVE
 #pragma omp single
@@ -1669,6 +1780,24 @@ void foo() {
 #pragma omp target teams // OK
     ++a;
   }
+#pragma omp single
+  {
+#pragma omp target teams distribute // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp single
+  {
+#pragma omp target teams distribute parallel for // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp single
+  {
+#pragma omp target teams distribute parallel for simd // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
 
 // MASTER DIRECTIVE
 #pragma omp master
@@ -1899,6 +2028,24 @@ void foo() {
   {
 #pragma omp target teams // OK
     a++;
+  }
+#pragma omp master
+  {
+#pragma omp target teams distribute // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp master
+  {
+#pragma omp target teams distribute parallel for // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp master
+  {
+#pragma omp target teams distribute parallel for simd // OK
+    for (int i = 0; i < 10; ++i)
+      ;
   }
 
 // CRITICAL DIRECTIVE
@@ -2145,6 +2292,24 @@ void foo() {
 #pragma omp target teams // OK
     a++;
   }
+#pragma omp critical
+  {
+#pragma omp target teams distribute // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp critical
+  {
+#pragma omp target teams distribute parallel for // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp critical
+  {
+#pragma omp target teams distribute parallel for simd // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
 
 // PARALLEL FOR DIRECTIVE
 #pragma omp parallel for
@@ -2389,6 +2554,24 @@ void foo() {
   for (int i = 0; i < 10; ++i) {
 #pragma omp target teams // OK
     a++;
+  }
+#pragma omp parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // OK
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
+#pragma omp parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // OK
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
+#pragma omp parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // OK
+    for (int j = 0; j < 10; ++j)
+      ;
   }
 
 // PARALLEL FOR SIMD DIRECTIVE
@@ -2636,6 +2819,24 @@ void foo() {
 #pragma omp target teams // expected-error {{OpenMP constructs may not be nested inside a simd region}}
     a++;
   }
+#pragma omp parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
+#pragma omp parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
+#pragma omp parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
 
 // PARALLEL SECTIONS DIRECTIVE
 #pragma omp parallel sections
@@ -2870,6 +3071,24 @@ void foo() {
 #pragma omp target teams // OK
     a++;
   }
+#pragma omp parallel sections
+  {
+#pragma omp target teams distribute // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp parallel sections
+  {
+#pragma omp target teams distribute parallel for // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp parallel sections
+  {
+#pragma omp target teams distribute parallel for simd // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
 
 // TASK DIRECTIVE
 #pragma omp task
@@ -3050,6 +3269,24 @@ void foo() {
   {
 #pragma omp target teams // OK
     a++;
+  }
+#pragma omp task
+  {
+#pragma omp target teams distribute // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp task
+  {
+#pragma omp target teams distribute parallel for // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp task
+  {
+#pragma omp target teams distribute parallel for simd // OK
+    for (int i = 0; i < 10; ++i)
+      ;
   }
 
 // ORDERED DIRECTIVE
@@ -3302,6 +3539,24 @@ void foo() {
   {
 #pragma omp target teams // OK
     a++;
+  }
+#pragma omp ordered
+  {
+#pragma omp target teams distribute // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp ordered
+  {
+#pragma omp target teams distribute parallel for // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp ordered
+  {
+#pragma omp target teams distribute parallel for simd // OK
+    for (int i = 0; i < 10; ++i)
+      ;
   }
 
 // ATOMIC DIRECTIVE
@@ -3595,6 +3850,30 @@ void foo() {
 #pragma omp target teams // expected-error {{OpenMP constructs may not be nested inside an atomic region}}
     a++;
   }
+#pragma omp atomic
+  // expected-error@+2 {{the statement for 'atomic' must be an expression statement of form '++x;', '--x;', 'x++;', 'x--;', 'x binop= expr;', 'x = x binop expr' or 'x = expr binop x', where x is an l-value expression with scalar type}}
+  // expected-note@+1 {{expected an expression statement}}
+  {
+#pragma omp target teams distribute // expected-error {{OpenMP constructs may not be nested inside an atomic region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp atomic
+  // expected-error@+2 {{the statement for 'atomic' must be an expression statement of form '++x;', '--x;', 'x++;', 'x--;', 'x binop= expr;', 'x = x binop expr' or 'x = expr binop x', where x is an l-value expression with scalar type}}
+  // expected-note@+1 {{expected an expression statement}}
+  {
+#pragma omp target teams distribute parallel for // expected-error {{OpenMP constructs may not be nested inside an atomic region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp atomic
+  // expected-error@+2 {{the statement for 'atomic' must be an expression statement of form '++x;', '--x;', 'x++;', 'x--;', 'x binop= expr;', 'x = x binop expr' or 'x = expr binop x', where x is an l-value expression with scalar type}}
+  // expected-note@+1 {{expected an expression statement}}
+  {
+#pragma omp target teams distribute parallel for simd // expected-error {{OpenMP constructs may not be nested inside an atomic region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
 
 // TARGET DIRECTIVE
 #pragma omp target
@@ -3793,6 +4072,24 @@ void foo() {
     for (int i = 0; i < 10; ++i)
       ;
   }
+#pragma omp target
+  { 
+#pragma omp target teams distribute // expected-error {{region cannot be nested inside 'target' region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target
+  { 
+#pragma omp target teams distribute parallel for // expected-error {{region cannot be nested inside 'target' region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target
+  { 
+#pragma omp target teams distribute parallel for simd // expected-error {{region cannot be nested inside 'target' region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
 
 // TARGET PARALLEL DIRECTIVE
 #pragma omp target parallel
@@ -3983,6 +4280,24 @@ void foo() {
   { 
 #pragma omp target teams // expected-error {{region cannot be nested inside 'target parallel' region}}
     a++;
+  }
+#pragma omp target parallel
+  { 
+#pragma omp target teams distribute // expected-error {{region cannot be nested inside 'target parallel' region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target parallel
+  { 
+#pragma omp target teams distribute parallel for // expected-error {{region cannot be nested inside 'target parallel' region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target parallel
+  { 
+#pragma omp target teams distribute parallel for simd // expected-error {{region cannot be nested inside 'target parallel' region}}
+    for (int i = 0; i < 10; ++i)
+      ;
   }
 
 // TARGET PARALLEL FOR DIRECTIVE
@@ -4229,6 +4544,24 @@ void foo() {
 #pragma omp target teams // expected-error {{region cannot be nested inside 'target parallel for' region}}
     a++;
   }    
+#pragma omp target parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // expected-error {{region cannot be nested inside 'target parallel for' region}}
+    for (int j = 0; j < 10; ++j)
+      ;
+  }    
+#pragma omp target parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{region cannot be nested inside 'target parallel for' region}}
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
+#pragma omp target parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{region cannot be nested inside 'target parallel for' region}}
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
 
 // TEAMS DIRECTIVE
 #pragma omp teams // expected-error {{orphaned 'omp teams' directives are prohibited; perhaps you forget to enclose the directive into a target region?}}
@@ -4470,6 +4803,27 @@ void foo() {
 #pragma omp target teams // expected-error {{region cannot be nested inside 'target' region}}
     a++;
   }
+#pragma omp target
+#pragma omp teams
+  {
+#pragma omp target teams distribute // expected-error {{region cannot be nested inside 'target' region}}
+  for (int i = 0; i < 10; ++i)
+    ;
+  }
+#pragma omp target
+#pragma omp teams
+  {
+#pragma omp target teams distribute parallel for // expected-error {{region cannot be nested inside 'target' region}}
+  for (int i = 0; i < 10; ++i)
+    ;
+  }
+#pragma omp target
+#pragma omp teams
+  {
+#pragma omp target teams distribute parallel for simd // expected-error {{region cannot be nested inside 'target' region}}
+  for (int i = 0; i < 10; ++i)
+    ;
+  }
 
 // TASKLOOP DIRECTIVE
 #pragma omp taskloop
@@ -4704,6 +5058,24 @@ void foo() {
 #pragma omp taskloop
   for (int i = 0; i < 10; ++i) {
 #pragma omp target teams // OK
+    ++a;
+  }
+#pragma omp taskloop
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // OK
+  for (int j = 0; j < 10; ++j)
+    ++a;
+  }
+#pragma omp taskloop
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // OK
+  for (int j = 0; j < 10; ++j)
+    ++a;
+  }
+#pragma omp taskloop
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // OK
+  for (int j = 0; j < 10; ++j)
     ++a;
   }
 
@@ -4977,6 +5349,30 @@ void foo() {
   for (int i = 0; i < 10; ++i) {
 #pragma omp target teams // expected-error {{region cannot be nested inside 'target' region}}
     a++;
+  }
+#pragma omp target
+#pragma omp teams
+#pragma omp distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // expected-error {{region cannot be nested inside 'target' region}}
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
+#pragma omp target
+#pragma omp teams
+#pragma omp distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{region cannot be nested inside 'target' region}}
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
+#pragma omp target
+#pragma omp teams
+#pragma omp distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{region cannot be nested inside 'target' region}}
+    for (int j = 0; j < 10; ++j)
+      ;
   }
 
 // DISTRIBUTE PARALLEL FOR DIRECTIVE
@@ -5257,6 +5653,30 @@ void foo() {
   for (int i = 0; i < 10; ++i) {
 #pragma omp target teams // expected-error {{region cannot be nested inside 'target' region}}
     a++;
+  }
+#pragma omp target
+#pragma omp teams
+#pragma omp distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // expected-error {{region cannot be nested inside 'target' region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target
+#pragma omp teams
+#pragma omp distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{region cannot be nested inside 'target' region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target
+#pragma omp teams
+#pragma omp distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{region cannot be nested inside 'target' region}}
+    for (int i = 0; i < 10; ++i)
+      ;
   }
 
 // DISTRIBUTE PARALLEL FOR SIMD DIRECTIVE
@@ -5546,6 +5966,30 @@ void foo() {
 #pragma omp target teams // expected-error {{OpenMP constructs may not be nested inside a simd region}}
     ++a;
   }
+#pragma omp target
+#pragma omp teams
+#pragma omp distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target
+#pragma omp teams
+#pragma omp distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target
+#pragma omp teams
+#pragma omp distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
 
 // TARGET SIMD DIRECTIVE
 #pragma omp target simd
@@ -5751,8 +6195,20 @@ void foo() {
     for (int i = 0; i < 10; ++i)
       ++a;
   }
+#pragma omp target simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
 
- // TEAMS DISTRIBUTE DIRECTIVE
+// TEAMS DISTRIBUTE DIRECTIVE
 #pragma omp teams distribute // expected-error {{orphaned 'omp teams distribute' directives are prohibited; perhaps you forget to enclose the directive into a target region?}}
   for (int i = 0; i < 10; ++i)
     ;
@@ -5993,8 +6449,22 @@ void foo() {
     for (int i = 0; i < 10; ++i)
       ++a;
   }
+#pragma omp target
+#pragma omp teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{region cannot be nested inside 'target' region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target
+#pragma omp teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{region cannot be nested inside 'target' region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
 
- // TEAMS DISTRIBUTE DIRECTIVE
+// TEAMS DISTRIBUTE DIRECTIVE
 #pragma omp teams distribute // expected-error {{orphaned 'omp teams distribute' directives are prohibited; perhaps you forget to enclose the directive into a target region?}}
   for (int i = 0; i < 10; ++i)
     ;
@@ -6247,6 +6717,27 @@ void foo() {
   for (int i = 0; i < 10; ++i) {
 #pragma omp target teams // expected-error {{region cannot be nested inside 'target' region}}
     ++a;
+  }
+#pragma omp target
+#pragma omp teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // expected-error {{region cannot be nested inside 'target' region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target
+#pragma omp teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{region cannot be nested inside 'target' region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target
+#pragma omp teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{region cannot be nested inside 'target' region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
   }
 
 // TEAMS DISTRIBUTE SIMD DIRECTIVE
@@ -6503,6 +6994,27 @@ void foo() {
 #pragma omp target teams // expected-error {{OpenMP constructs may not be nested inside a simd region}}
     ++a;
   }
+#pragma omp target
+#pragma omp teams distribute simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target
+#pragma omp teams distribute simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target
+#pragma omp teams distribute simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
 
 // TEAMS DISTRIBUTE PARALLEL FOR SIMD DIRECTIVE
 #pragma omp teams distribute parallel for simd // expected-error {{orphaned 'omp teams distribute parallel for simd' directives are prohibited; perhaps you forget to enclose the directive into a target region?}}
@@ -6757,6 +7269,27 @@ void foo() {
   for (int i = 0; i < 10; ++i) {
 #pragma omp target teams // expected-error {{OpenMP constructs may not be nested inside a simd region}}
     ++a;
+  }
+#pragma omp target
+#pragma omp teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target
+#pragma omp teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target
+#pragma omp teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
   }
 
 // TEAMS DISTRIBUTE PARALLEL FOR DIRECTIVE
@@ -7013,6 +7546,27 @@ void foo() {
 #pragma omp target teams // expected-error {{region cannot be nested inside 'target' region}}
     ++a;
   }
+#pragma omp target
+#pragma omp teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // expected-error {{region cannot be nested inside 'target' region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target
+#pragma omp teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{region cannot be nested inside 'target' region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target
+#pragma omp teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{region cannot be nested inside 'target' region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
 
 // TARGET TEAMS DIRECTIVE
 #pragma omp target teams
@@ -7210,6 +7764,735 @@ void foo() {
 #pragma omp target teams // expected-error {{region cannot be nested inside 'target teams' region}}
     a++;
   }
+#pragma omp target teams
+  {
+#pragma omp target teams distribute // expected-error {{region cannot be nested inside 'target teams' region}}
+  for (int i = 0; i < 10; ++i)
+    ;
+  }
+#pragma omp target teams
+  {
+#pragma omp target teams distribute parallel for // expected-error {{region cannot be nested inside 'target teams' region}}
+  for (int i = 0; i < 10; ++i)
+    ;
+  }
+#pragma omp target teams
+  {
+#pragma omp target teams distribute parallel for simd // expected-error {{region cannot be nested inside 'target teams' region}}
+  for (int i = 0; i < 10; ++i)
+    ;
+  }
+
+// TARGET TEAMS DISTRIBUTE DIRECTIVE
+#pragma omp target teams distribute // OK
+  for (int i = 0; i < 10; ++i)
+    ;
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp distribute parallel for simd // expected-error {{region cannot be closely nested inside 'target teams distribute' region; perhaps you forget to enclose 'omp distribute parallel for simd' directive into a teams region?}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp distribute // expected-error {{region cannot be closely nested inside 'target teams distribute' region; perhaps you forget to enclose 'omp distribute' directive into a teams region?}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp for // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp simd // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp for simd // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp parallel // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp sections // OK
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp section // expected-error {{'omp section' directive must be closely nested to a sections region, not a target teams distribute region}}
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp single // OK
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp master // OK
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp critical // OK
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp parallel // OK
+    {
+#pragma omp single
+      {
+	bar();
+      }
+    }
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp parallel for // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp parallel for simd // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp parallel sections // OK
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp task // OK
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp taskyield // OK
+    bar();
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp barrier // OK
+    bar();
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp taskwait // OK
+    bar();
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp flush // OK
+    bar();
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp ordered // expected-error {{region cannot be closely nested inside 'target teams distribute' region; perhaps you forget to enclose 'omp ordered' directive into a for or a parallel for region with 'ordered' clause?}}
+    bar();
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp atomic // OK
+    ++a;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target // expected-error {{region cannot be nested inside 'target teams distribute' region}}
+    ++a;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target parallel  // expected-error {{region cannot be nested inside 'target teams distribute' region}}
+    ++a;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target parallel for // expected-error {{region cannot be nested inside 'target teams distribute' region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target enter data map(to: a) // expected-error {{region cannot be nested inside 'target teams distribute' region}}
+    ++a;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target exit data map(from: a) // expected-error {{region cannot be nested inside 'target teams distribute' region}}
+    ++a;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp teams // expected-error {{region cannot be closely nested inside 'target teams distribute' region; perhaps you forget to enclose 'omp teams' directive into a target region?}}
+    ++a;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target update to(a) // expected-error {{region cannot be nested inside 'target teams distribute' region}}
+    ++a;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp distribute simd // expected-error {{region cannot be closely nested inside 'target teams distribute' region; perhaps you forget to enclose 'omp distribute simd' directive into a teams region?}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target simd // expected-error {{region cannot be nested inside 'target teams distribute' region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp teams distribute // expected-error {{region cannot be closely nested inside 'target teams distribute' region; perhaps you forget to enclose 'omp teams distribute' directive into a target region?}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp teams distribute simd // expected-error {{region cannot be closely nested inside 'target teams distribute' region; perhaps you forget to enclose 'omp teams distribute simd' directive into a target region?}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp teams distribute parallel for simd // expected-error {{region cannot be closely nested inside 'target teams distribute' region; perhaps you forget to enclose 'omp teams distribute parallel for simd' directive into a target region?}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp teams distribute parallel for // expected-error {{region cannot be closely nested inside 'target teams distribute' region; perhaps you forget to enclose 'omp teams distribute parallel for' directive into a target region?}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams // expected-error {{region cannot be nested inside 'target teams distribute' region}}
+    a++;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // expected-error {{region cannot be nested inside 'target teams distribute' region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{region cannot be nested inside 'target teams distribute' region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{region cannot be nested inside 'target teams distribute' region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+
+// TARGET TEAMS DISTRIBUTE PARALLEL FOR DIRECTIVE
+#pragma omp target teams distribute parallel for // OK
+  for (int i = 0; i < 10; ++i)
+    ;
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp distribute parallel for simd // expected-error {{region cannot be closely nested inside 'target teams distribute parallel for' region; perhaps you forget to enclose 'omp distribute parallel for simd' directive into a teams region?}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp distribute // expected-error {{region cannot be closely nested inside 'target teams distribute parallel for' region; perhaps you forget to enclose 'omp distribute' directive into a teams region?}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp for // expected-error {{region cannot be closely nested inside 'target teams distribute parallel for' region; perhaps you forget to enclose 'omp for' directive into a parallel region?}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp simd // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp for simd // expected-error {{region cannot be closely nested inside 'target teams distribute parallel for' region; perhaps you forget to enclose 'omp for simd' directive into a parallel region?}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp parallel // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp sections // expected-error {{region cannot be closely nested inside 'target teams distribute parallel for' region; perhaps you forget to enclose 'omp sections' directive into a parallel region?}}
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp section // expected-error {{'omp section' directive must be closely nested to a sections region, not a target teams distribute parallel for region}}
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp single // expected-error {{region cannot be closely nested inside 'target teams distribute parallel for' region; perhaps you forget to enclose 'omp single' directive into a parallel region?}}
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp master // expected-error {{region cannot be closely nested inside 'target teams distribute parallel for' region}}
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp critical // OK
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp parallel // OK
+    {
+#pragma omp single
+      {
+	bar();
+      }
+    }
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp parallel for // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp parallel for simd // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp parallel sections // OK
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp task // OK
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp taskyield // OK
+    bar();
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp barrier // expected-error {{region cannot be closely nested inside 'target teams distribute parallel for' region}}
+    bar();
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp taskwait // OK
+    bar();
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp flush // OK
+    bar();
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp ordered // expected-error {{region cannot be closely nested inside 'target teams distribute parallel for' region; perhaps you forget to enclose 'omp ordered' directive into a for or a parallel for region with 'ordered' clause?}}
+    bar();
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp atomic // OK
+    ++a;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target // expected-error {{region cannot be nested inside 'target teams distribute parallel for' region}}
+    ++a;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target parallel  // expected-error {{region cannot be nested inside 'target teams distribute parallel for' region}}
+    ++a;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target parallel for // expected-error {{region cannot be nested inside 'target teams distribute parallel for' region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target enter data map(to: a) // expected-error {{region cannot be nested inside 'target teams distribute parallel for' region}}
+    ++a;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target exit data map(from: a) // expected-error {{region cannot be nested inside 'target teams distribute parallel for' region}}
+    ++a;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp teams // expected-error {{region cannot be closely nested inside 'target teams distribute parallel for' region; perhaps you forget to enclose 'omp teams' directive into a target region?}}
+    ++a;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target update to(a) // expected-error {{region cannot be nested inside 'target teams distribute parallel for' region}}
+    ++a;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp distribute simd // expected-error {{region cannot be closely nested inside 'target teams distribute parallel for' region; perhaps you forget to enclose 'omp distribute simd' directive into a teams region?}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target simd // expected-error {{region cannot be nested inside 'target teams distribute parallel for' region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp teams distribute // expected-error {{region cannot be closely nested inside 'target teams distribute parallel for' region; perhaps you forget to enclose 'omp teams distribute' directive into a target region?}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp teams distribute simd // expected-error {{region cannot be closely nested inside 'target teams distribute parallel for' region; perhaps you forget to enclose 'omp teams distribute simd' directive into a target region?}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp teams distribute parallel for simd // expected-error {{region cannot be closely nested inside 'target teams distribute parallel for' region; perhaps you forget to enclose 'omp teams distribute parallel for simd' directive into a target region?}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp teams distribute parallel for // expected-error {{region cannot be closely nested inside 'target teams distribute parallel for' region; perhaps you forget to enclose 'omp teams distribute parallel for' directive into a target region?}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams // expected-error {{region cannot be nested inside 'target teams distribute parallel for' region}}
+    a++;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // expected-error {{region cannot be nested inside 'target teams distribute parallel for' region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{region cannot be nested inside 'target teams distribute parallel for' region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{region cannot be nested inside 'target teams distribute parallel for' region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+
+// TARGET TEAMS DISTRIBUTE PARALLEL FOR SIMD DIRECTIVE
+#pragma omp target teams distribute parallel for simd // OK
+  for (int i = 0; i < 10; ++i)
+    ;
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp distribute parallel for simd // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp distribute // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp for // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp simd // expected-warning {{OpenMP only allows an ordered construct with the simd clause nested in a simd construct}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp for simd // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp parallel // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp sections // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp section // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp single // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp master // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp critical // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp parallel // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    {
+#pragma omp single
+      {
+	bar();
+      }
+    }
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp parallel for // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp parallel for simd // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp parallel sections // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp task // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp taskyield // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    bar();
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp barrier // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    bar();
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp taskwait // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    bar();
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp flush // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    bar();
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp ordered // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    bar();
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp atomic // expected-error {{OpenMP constructs may not be nested inside a simd region}}OK
+    ++a;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    ++a;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target parallel  // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    ++a;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target parallel for // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target enter data map(to: a) // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    ++a;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target exit data map(from: a) // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    ++a;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp teams // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    ++a;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target update to(a) // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    ++a;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp distribute simd // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target simd // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp teams distribute // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp teams distribute simd // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp teams distribute parallel for simd // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp teams distribute parallel for // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    a++;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
 
 }
 
@@ -7398,6 +8681,24 @@ void foo() {
   {
 #pragma omp target teams // OK
     a++;
+  }
+#pragma omp parallel
+  {
+#pragma omp target teams distribute // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp parallel
+  {
+#pragma omp target teams distribute parallel for // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp parallel
+  {
+#pragma omp target teams distribute parallel for simd // OK
+    for (int i = 0; i < 10; ++i)
+      ;
   }
 
 // SIMD DIRECTIVE
@@ -7609,6 +8910,24 @@ void foo() {
   for (int i = 0; i < 10; ++i) {
 #pragma omp target teams // expected-error {{OpenMP constructs may not be nested inside a simd region}}
     a++;
+  }
+#pragma omp simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
+#pragma omp simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
+#pragma omp simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int j = 0; j < 10; ++j)
+      ;
   }
 
 // FOR DIRECTIVE
@@ -7841,6 +9160,24 @@ void foo() {
 #pragma omp target teams // OK
     a++;
   }
+#pragma omp for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // OK
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
+#pragma omp for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // OK
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
+#pragma omp for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // OK
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
 
 // FOR SIMD DIRECTIVE
 #pragma omp for simd
@@ -8051,6 +9388,24 @@ void foo() {
   for (int i = 0; i < 10; ++i) {
 #pragma omp target teams // expected-error {{OpenMP constructs may not be nested inside a simd region}}
     a++;
+  }
+#pragma omp for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
+#pragma omp for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
+#pragma omp for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int j = 0; j < 10; ++j)
+      ;
   }
 
 // SECTIONS DIRECTIVE
@@ -8271,6 +9626,24 @@ void foo() {
   {
 #pragma omp target teams // OK
     a++;
+  }
+#pragma omp sections
+  {
+#pragma omp target teams distribute // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp sections
+  {
+#pragma omp target teams distribute parallel for // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp sections
+  {
+#pragma omp target teams distribute parallel for simd // OK
+    for (int i = 0; i < 10; ++i)
+      ;
   }
 
 // SECTION DIRECTIVE
@@ -8590,6 +9963,27 @@ void foo() {
 #pragma omp target teams // OK
     a++;
   }
+#pragma omp sections
+  {
+#pragma omp section
+#pragma omp target teams distribute // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp sections
+  {
+#pragma omp section
+#pragma omp target teams distribute parallel for // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp sections
+  {
+#pragma omp section
+#pragma omp target teams distribute parallel for simd // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
 
 // SINGLE DIRECTIVE
 #pragma omp single
@@ -8810,6 +10204,24 @@ void foo() {
   {
 #pragma omp target teams // oK
     a++;
+  }
+#pragma omp single
+  {
+#pragma omp target teams distribute // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp single
+  {
+#pragma omp target teams distribute parallel for // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp single
+  {
+#pragma omp target teams distribute parallel for simd // OK
+    for (int i = 0; i < 10; ++i)
+      ;
   }
 
 // MASTER DIRECTIVE
@@ -9041,6 +10453,24 @@ void foo() {
   {
 #pragma omp target teams // OK
     a++;
+  }
+#pragma omp master
+  {
+#pragma omp target teams distribute // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp master
+  {
+#pragma omp target teams distribute parallel for // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp master
+  {
+#pragma omp target teams distribute parallel for simd // OK
+    for (int i = 0; i < 10; ++i)
+      ;
   }
 
 // CRITICAL DIRECTIVE
@@ -9292,6 +10722,24 @@ void foo() {
 #pragma omp target teams // OK
     a++;
   }
+#pragma omp critical
+  {
+#pragma omp target teams distribute // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp critical
+  {
+#pragma omp target teams distribute parallel for // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp critical
+  {
+#pragma omp target teams distribute parallel for simd // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
 
 // PARALLEL FOR DIRECTIVE
 #pragma omp parallel for
@@ -9537,6 +10985,24 @@ void foo() {
   for (int i = 0; i < 10; ++i) {
 #pragma omp target teams // OK
     a++;
+  }
+#pragma omp parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // OK
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
+#pragma omp parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // OK
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
+#pragma omp parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // OK
+    for (int j = 0; j < 10; ++j)
+      ;
   }
 
 // PARALLEL FOR SIMD DIRECTIVE
@@ -9784,6 +11250,24 @@ void foo() {
 #pragma omp target teams // expected-error {{OpenMP constructs may not be nested inside a simd region}}
     a++;
   }
+#pragma omp parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
+#pragma omp parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
+#pragma omp parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
 
 // PARALLEL SECTIONS DIRECTIVE
 #pragma omp parallel sections
@@ -10014,6 +11498,24 @@ void foo() {
 #pragma omp target teams // OK
     a++;
   }
+#pragma omp parallel sections
+  {
+#pragma omp target teams distribute // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp parallel sections
+  {
+#pragma omp target teams distribute parallel for // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp parallel sections
+  {
+#pragma omp target teams distribute parallel for simd // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
 
 // TASK DIRECTIVE
 #pragma omp task
@@ -10193,6 +11695,24 @@ void foo() {
   {
 #pragma omp target teams // OK
     a++;
+  }
+#pragma omp task
+  {
+#pragma omp target teams distribute // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp task
+  {
+#pragma omp target teams distribute parallel for // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp task
+  {
+#pragma omp target teams distribute parallel for simd // OK
+    for (int i = 0; i < 10; ++i)
+      ;
   }
 
 // ATOMIC DIRECTIVE
@@ -10485,6 +12005,30 @@ void foo() {
 #pragma omp target teams // expected-error {{OpenMP constructs may not be nested inside an atomic region}}
     a++;
   }
+#pragma omp atomic
+  // expected-error@+2 {{the statement for 'atomic' must be an expression statement of form '++x;', '--x;', 'x++;', 'x--;', 'x binop= expr;', 'x = x binop expr' or 'x = expr binop x', where x is an l-value expression with scalar type}}
+  // expected-note@+1 {{expected an expression statement}}
+  {
+#pragma omp target teams distribute // expected-error {{OpenMP constructs may not be nested inside an atomic region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp atomic
+  // expected-error@+2 {{the statement for 'atomic' must be an expression statement of form '++x;', '--x;', 'x++;', 'x--;', 'x binop= expr;', 'x = x binop expr' or 'x = expr binop x', where x is an l-value expression with scalar type}}
+  // expected-note@+1 {{expected an expression statement}}
+  {
+#pragma omp target teams distribute parallel for // expected-error {{OpenMP constructs may not be nested inside an atomic region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp atomic
+  // expected-error@+2 {{the statement for 'atomic' must be an expression statement of form '++x;', '--x;', 'x++;', 'x--;', 'x binop= expr;', 'x = x binop expr' or 'x = expr binop x', where x is an l-value expression with scalar type}}
+  // expected-note@+1 {{expected an expression statement}}
+  {
+#pragma omp target teams distribute parallel for simd // expected-error {{OpenMP constructs may not be nested inside an atomic region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
 
 // TARGET DIRECTIVE
 #pragma omp target
@@ -10679,6 +12223,24 @@ void foo() {
 #pragma omp target teams // expected-error {{region cannot be nested inside 'target' region}}
     a++;
   }
+#pragma omp target
+  { 
+#pragma omp target teams distribute // expected-error {{region cannot be nested inside 'target' region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target
+  { 
+#pragma omp target teams distribute parallel for // expected-error {{region cannot be nested inside 'target' region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target
+  { 
+#pragma omp target teams distribute parallel for simd // expected-error {{region cannot be nested inside 'target' region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
 
 // TARGET PARALLEL DIRECTIVE
 #pragma omp target parallel
@@ -10869,6 +12431,24 @@ void foo() {
   { 
 #pragma omp target teams // expected-error {{region cannot be nested inside 'target parallel' region}}
     a++;
+  }
+#pragma omp target parallel
+  { 
+#pragma omp target teams distribute // expected-error {{region cannot be nested inside 'target parallel' region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target parallel
+  { 
+#pragma omp target teams distribute parallel for // expected-error {{region cannot be nested inside 'target parallel' region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target parallel
+  { 
+#pragma omp target teams distribute parallel for simd // expected-error {{region cannot be nested inside 'target parallel' region}}
+    for (int i = 0; i < 10; ++i)
+      ;
   }
 
 // TARGET PARALLEL FOR DIRECTIVE
@@ -11116,6 +12696,24 @@ void foo() {
 #pragma omp target teams // expected-error {{region cannot be nested inside 'target parallel for' region}}
     a++;
   }
+#pragma omp target parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // expected-error {{region cannot be nested inside 'target parallel for' region}}
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
+#pragma omp target parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{region cannot be nested inside 'target parallel for' region}}
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
+#pragma omp target parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{region cannot be nested inside 'target parallel for' region}}
+    for (int j = 0; j < 10; ++j)
+      ;
+  }
 
 // TEAMS DIRECTIVE
 #pragma omp target
@@ -11359,6 +12957,27 @@ void foo() {
 #pragma omp target teams // expected-error {{region cannot be nested inside 'target' region}}
     a++;
   }
+#pragma omp target
+#pragma omp teams
+  {
+#pragma omp target teams distribute // expected-error {{region cannot be nested inside 'target' region}}
+  for (int i = 0; i < 10; ++i)
+    ;
+  }
+#pragma omp target
+#pragma omp teams
+  {
+#pragma omp target teams distribute parallel for // expected-error {{region cannot be nested inside 'target' region}}
+  for (int i = 0; i < 10; ++i)
+    ;
+  }
+#pragma omp target
+#pragma omp teams
+  {
+#pragma omp target teams distribute parallel for simd // expected-error {{region cannot be nested inside 'target' region}}
+  for (int i = 0; i < 10; ++i)
+    ;
+  }
 
 // TASKLOOP DIRECTIVE
 #pragma omp taskloop
@@ -11594,6 +13213,24 @@ void foo() {
   for (int i = 0; i < 10; ++i) {
 #pragma omp target teams // OK
     a++;
+  }
+#pragma omp taskloop
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp taskloop
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp taskloop
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // OK
+    for (int i = 0; i < 10; ++i)
+      ;
   }
 
 // DISTRIBUTE DIRECTIVE
@@ -11873,6 +13510,30 @@ void foo() {
 #pragma omp distribute
   for (int i = 0; i < 10; ++i) {
 #pragma omp target teams // expected-error {{region cannot be nested inside 'target' region}}
+  for (int i = 0; i < 10; ++i)
+    ++a;
+  }
+#pragma omp target
+#pragma omp teams
+#pragma omp distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // expected-error {{region cannot be nested inside 'target' region}}
+  for (int i = 0; i < 10; ++i)
+    ++a;
+  }
+#pragma omp target
+#pragma omp teams
+#pragma omp distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{region cannot be nested inside 'target' region}}
+  for (int i = 0; i < 10; ++i)
+    ++a;
+  }
+#pragma omp target
+#pragma omp teams
+#pragma omp distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{region cannot be nested inside 'target' region}}
   for (int i = 0; i < 10; ++i)
     ++a;
   }
@@ -12165,6 +13826,30 @@ void foo() {
 #pragma omp target teams // expected-error {{region cannot be nested inside 'target' region}}
     ++a;
   }
+#pragma omp target
+#pragma omp teams
+#pragma omp distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // expected-error {{region cannot be nested inside 'target' region}}
+  for (int i = 0; i < 10; ++i)
+    ++a;
+  }
+#pragma omp target
+#pragma omp teams
+#pragma omp distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{region cannot be nested inside 'target' region}}
+  for (int i = 0; i < 10; ++i)
+    ++a;
+  }
+#pragma omp target
+#pragma omp teams
+#pragma omp distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{region cannot be nested inside 'target' region}}
+  for (int i = 0; i < 10; ++i)
+    ++a;
+  }
 
 // DISTRIBUTE PARALLEL FOR SIMD DIRECTIVE
 #pragma omp target
@@ -12444,6 +14129,30 @@ void foo() {
   for (int i = 0; i < 10; ++i) {
 #pragma omp target teams // expected-error {{OpenMP constructs may not be nested inside a simd region}}
     a++;
+  }
+#pragma omp target
+#pragma omp teams
+#pragma omp distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target
+#pragma omp teams
+#pragma omp distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target
+#pragma omp teams
+#pragma omp distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
   }
 
 // DISTRIBUTE SIMD DIRECTIVE
@@ -12725,6 +14434,30 @@ void foo() {
 #pragma omp target teams // expected-error {{OpenMP constructs may not be nested inside a simd region}}
     a++;
   }
+#pragma omp target
+#pragma omp teams
+#pragma omp distribute simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target
+#pragma omp teams
+#pragma omp distribute simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target
+#pragma omp teams
+#pragma omp distribute simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
 
 // TARGET SIMD DIRECTIVE
 #pragma omp target simd
@@ -12934,6 +14667,24 @@ void foo() {
   for (int i = 0; i < 10; ++i) {
 #pragma omp target teams // expected-error {{OpenMP constructs may not be nested inside a simd region}}
     a++;
+  }
+#pragma omp target simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
   }
 
 // TEAMS DISTRIBUTE DIRECTIVE
@@ -13190,6 +14941,27 @@ void foo() {
 #pragma omp target teams // expected-error {{region cannot be nested inside 'target' region}}
     ++a;
   }
+#pragma omp target
+#pragma omp teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // expected-error {{region cannot be nested inside 'target' region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target
+#pragma omp teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{region cannot be nested inside 'target' region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target
+#pragma omp teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{region cannot be nested inside 'target' region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
 
 // TEAMS DISTRIBUTE SIMD DIRECTIVE
 #pragma omp teams distribute simd // expected-error {{orphaned 'omp teams distribute simd' directives are prohibited; perhaps you forget to enclose the directive into a target region?}}
@@ -13444,6 +15216,27 @@ void foo() {
   for (int i = 0; i < 10; ++i) {
 #pragma omp target teams // expected-error {{OpenMP constructs may not be nested inside a simd region}}
     ++a;
+  }
+#pragma omp target
+#pragma omp teams distribute simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target
+#pragma omp teams distribute simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target
+#pragma omp teams distribute simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
   }
 
 // TEAMS DISTRIBUTE PARALLEL FOR SIMD DIRECTIVE
@@ -13700,6 +15493,27 @@ void foo() {
 #pragma omp target teams // expected-error {{OpenMP constructs may not be nested inside a simd region}}
     ++a;
   }
+#pragma omp target
+#pragma omp teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target
+#pragma omp teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target
+#pragma omp teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
 
 // TEAMS DISTRIBUTE PARALLEL FOR DIRECTIVE
 #pragma omp teams distribute parallel for // expected-error {{orphaned 'omp teams distribute parallel for' directives are prohibited; perhaps you forget to enclose the directive into a target region?}}
@@ -13955,6 +15769,27 @@ void foo() {
 #pragma omp target teams // expected-error {{region cannot be nested inside 'target' region}}
     ++a;
   }
+#pragma omp target
+#pragma omp teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // expected-error {{region cannot be nested inside 'target' region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target
+#pragma omp teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{region cannot be nested inside 'target' region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target
+#pragma omp teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{region cannot be nested inside 'target' region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
 
 // TARGET TEAMS DIRECTIVE
 #pragma omp target teams
@@ -14152,7 +15987,736 @@ void foo() {
 #pragma omp target teams // expected-error {{region cannot be nested inside 'target teams' region}}
     a++;
   }
+#pragma omp target teams
+  {
+#pragma omp target teams distribute // expected-error {{region cannot be nested inside 'target teams' region}}
+  for (int i = 0; i < 10; ++i)
+    ;
+  }
+#pragma omp target teams
+  {
+#pragma omp target teams distribute parallel for // expected-error {{region cannot be nested inside 'target teams' region}}
+  for (int i = 0; i < 10; ++i)
+    ;
+  }
+#pragma omp target teams
+  {
+#pragma omp target teams distribute parallel for simd // expected-error {{region cannot be nested inside 'target teams' region}}
+  for (int i = 0; i < 10; ++i)
+    ;
+  }
 
+// TARGET TEAMS DISTRIBUTE DIRECTIVE
+#pragma omp target teams distribute // OK
+  for (int i = 0; i < 10; ++i)
+    ;
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp distribute parallel for simd // expected-error {{region cannot be closely nested inside 'target teams distribute' region; perhaps you forget to enclose 'omp distribute parallel for simd' directive into a teams region?}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp distribute // expected-error {{region cannot be closely nested inside 'target teams distribute' region; perhaps you forget to enclose 'omp distribute' directive into a teams region?}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp for // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp simd // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp for simd // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp parallel // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp sections // OK
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp section // expected-error {{'omp section' directive must be closely nested to a sections region, not a target teams distribute region}}
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp single // OK
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp master // OK
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp critical // OK
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp parallel // OK
+    {
+#pragma omp single
+      {
+	bar();
+      }
+    }
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp parallel for // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp parallel for simd // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp parallel sections // OK
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp task // OK
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp taskyield // OK
+    bar();
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp barrier // OK
+    bar();
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp taskwait // OK
+    bar();
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp flush // OK
+    bar();
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp ordered // expected-error {{region cannot be closely nested inside 'target teams distribute' region; perhaps you forget to enclose 'omp ordered' directive into a for or a parallel for region with 'ordered' clause?}}
+    bar();
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp atomic // OK
+    ++a;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target // expected-error {{region cannot be nested inside 'target teams distribute' region}}
+    ++a;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target parallel  // expected-error {{region cannot be nested inside 'target teams distribute' region}}
+    ++a;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target parallel for // expected-error {{region cannot be nested inside 'target teams distribute' region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target enter data map(to: a) // expected-error {{region cannot be nested inside 'target teams distribute' region}}
+    ++a;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target exit data map(from: a) // expected-error {{region cannot be nested inside 'target teams distribute' region}}
+    ++a;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp teams // expected-error {{region cannot be closely nested inside 'target teams distribute' region; perhaps you forget to enclose 'omp teams' directive into a target region?}}
+    ++a;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target update to(a) // expected-error {{region cannot be nested inside 'target teams distribute' region}}
+    ++a;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp distribute simd // expected-error {{region cannot be closely nested inside 'target teams distribute' region; perhaps you forget to enclose 'omp distribute simd' directive into a teams region?}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target simd // expected-error {{region cannot be nested inside 'target teams distribute' region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp teams distribute // expected-error {{region cannot be closely nested inside 'target teams distribute' region; perhaps you forget to enclose 'omp teams distribute' directive into a target region?}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp teams distribute simd // expected-error {{region cannot be closely nested inside 'target teams distribute' region; perhaps you forget to enclose 'omp teams distribute simd' directive into a target region?}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp teams distribute parallel for simd // expected-error {{region cannot be closely nested inside 'target teams distribute' region; perhaps you forget to enclose 'omp teams distribute parallel for simd' directive into a target region?}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp teams distribute parallel for // expected-error {{region cannot be closely nested inside 'target teams distribute' region; perhaps you forget to enclose 'omp teams distribute parallel for' directive into a target region?}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams // expected-error {{region cannot be nested inside 'target teams distribute' region}}
+    ++a;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // expected-error {{region cannot be nested inside 'target teams distribute' region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{region cannot be nested inside 'target teams distribute' region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{region cannot be nested inside 'target teams distribute' region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+
+// TARGET TEAMS DISTRIBUTE PARALLEL FOR DIRECTIVE
+#pragma omp target teams distribute parallel for // OK
+  for (int i = 0; i < 10; ++i)
+    ;
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp distribute parallel for simd // expected-error {{region cannot be closely nested inside 'target teams distribute parallel for' region; perhaps you forget to enclose 'omp distribute parallel for simd' directive into a teams region?}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp distribute // expected-error {{region cannot be closely nested inside 'target teams distribute parallel for' region; perhaps you forget to enclose 'omp distribute' directive into a teams region?}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp for // expected-error {{region cannot be closely nested inside 'target teams distribute parallel for' region; perhaps you forget to enclose 'omp for' directive into a parallel region?}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp simd // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp for simd // expected-error {{region cannot be closely nested inside 'target teams distribute parallel for' region; perhaps you forget to enclose 'omp for simd' directive into a parallel region?}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp parallel // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp sections // expected-error {{region cannot be closely nested inside 'target teams distribute parallel for' region; perhaps you forget to enclose 'omp sections' directive into a parallel region?}}
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp section // expected-error {{'omp section' directive must be closely nested to a sections region, not a target teams distribute parallel for region}}
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp single // expected-error {{region cannot be closely nested inside 'target teams distribute parallel for' region}}
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp master // expected-error {{region cannot be closely nested inside 'target teams distribute parallel for' region}}
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp critical // OK
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp parallel // OK
+    {
+#pragma omp single
+      {
+	bar();
+      }
+    }
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp parallel for // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp parallel for simd // OK
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp parallel sections // OK
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp task // OK
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp taskyield // OK
+    bar();
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp barrier // expected-error {{region cannot be closely nested inside 'target teams distribute parallel for' region}}
+    bar();
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp taskwait // OK
+    bar();
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp flush // OK
+    bar();
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp ordered // expected-error {{region cannot be closely nested inside 'target teams distribute parallel for' region; perhaps you forget to enclose 'omp ordered' directive into a for or a parallel for region with 'ordered' clause?}}
+    bar();
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp atomic // OK
+    ++a;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target // expected-error {{region cannot be nested inside 'target teams distribute parallel for' region}}
+    ++a;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target parallel  // expected-error {{region cannot be nested inside 'target teams distribute parallel for' region}}
+    ++a;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target parallel for // expected-error {{region cannot be nested inside 'target teams distribute parallel for' region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target enter data map(to: a) // expected-error {{region cannot be nested inside 'target teams distribute parallel for' region}}
+    ++a;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target exit data map(from: a) // expected-error {{region cannot be nested inside 'target teams distribute parallel for' region}}
+    ++a;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp teams // expected-error {{region cannot be closely nested inside 'target teams distribute parallel for' region; perhaps you forget to enclose 'omp teams' directive into a target region?}}
+    ++a;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target update to(a) // expected-error {{region cannot be nested inside 'target teams distribute parallel for' region}}
+    ++a;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp distribute simd // expected-error {{region cannot be closely nested inside 'target teams distribute parallel for' region; perhaps you forget to enclose 'omp distribute simd' directive into a teams region?}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target simd // expected-error {{region cannot be nested inside 'target teams distribute parallel for' region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp teams distribute // expected-error {{region cannot be closely nested inside 'target teams distribute parallel for' region; perhaps you forget to enclose 'omp teams distribute' directive into a target region?}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp teams distribute simd // expected-error {{region cannot be closely nested inside 'target teams distribute parallel for' region; perhaps you forget to enclose 'omp teams distribute simd' directive into a target region?}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp teams distribute parallel for simd // expected-error {{region cannot be closely nested inside 'target teams distribute parallel for' region; perhaps you forget to enclose 'omp teams distribute parallel for simd' directive into a target region?}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp teams distribute parallel for // expected-error {{region cannot be closely nested inside 'target teams distribute parallel for' region; perhaps you forget to enclose 'omp teams distribute parallel for' directive into a target region?}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams // expected-error {{region cannot be nested inside 'target teams distribute parallel for' region}}
+    ++a;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // expected-error {{region cannot be nested inside 'target teams distribute parallel for' region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{region cannot be nested inside 'target teams distribute parallel for' region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute parallel for
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{region cannot be nested inside 'target teams distribute parallel for' region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+
+// TARGET TEAMS DISTRIBUTE PARALLEL FOR SIMD DIRECTIVE
+#pragma omp target teams distribute parallel for simd // OK
+  for (int i = 0; i < 10; ++i)
+    ;
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp distribute parallel for simd // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp distribute // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp for // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp simd // expected-warning {{OpenMP only allows an ordered construct with the simd clause nested in a simd construct}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp for simd // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp parallel // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp sections // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp section // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp single // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp master // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp critical // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp parallel // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    {
+#pragma omp single
+      {
+	bar();
+      }
+    }
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp parallel for // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp parallel for simd // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp parallel sections // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp task // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    {
+      bar();
+    }
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp taskyield // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    bar();
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp barrier // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    bar();
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp taskwait // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    bar();
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp flush // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    bar();
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp ordered // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    bar();
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp atomic // expected-error {{OpenMP constructs may not be nested inside a simd region}}OK
+    ++a;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    ++a;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target parallel  // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    ++a;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target parallel for // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target enter data map(to: a) // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    ++a;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target exit data map(from: a) // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    ++a;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp teams // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    ++a;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target update to(a) // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    ++a;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp distribute simd // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target simd // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp teams distribute // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp teams distribute simd // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp teams distribute parallel for simd // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ++a;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp teams distribute parallel for // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    a++;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+#pragma omp target teams distribute parallel for simd
+  for (int i = 0; i < 10; ++i) {
+#pragma omp target teams distribute parallel for simd // expected-error {{OpenMP constructs may not be nested inside a simd region}}
+    for (int i = 0; i < 10; ++i)
+      ;
+  }
+  
   return foo<int>();
 }
 

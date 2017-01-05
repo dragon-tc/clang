@@ -2235,6 +2235,15 @@ static void AddGoldPlugin(const ToolChain &ToolChain, const ArgList &Args,
                    UseSeparateSections)) {
     CmdArgs.push_back("-plugin-opt=-data-sections");
   }
+
+  if (Arg *A = Args.getLastArg(options::OPT_fprofile_sample_use_EQ)) {
+    StringRef FName = A->getValue();
+    if (!llvm::sys::fs::exists(FName))
+      D.Diag(diag::err_drv_no_such_file) << FName;
+    else
+      CmdArgs.push_back(
+          Args.MakeArgString(Twine("-plugin-opt=sample-profile=") + FName));
+  }
 }
 
 /// This is a helper function for validating the optional refinement step
@@ -3058,6 +3067,10 @@ static void CollectArgsForIntegratedAssembler(Compilation &C,
         continue;
       }
 
+      if (C.getDefaultToolChain().getTriple().isOSBinFormatCOFF() &&
+          Value == "-mbig-obj")
+        continue; // LLVM handles bigobj automatically
+
       switch (C.getDefaultToolChain().getArch()) {
       default:
         break;
@@ -3789,15 +3802,14 @@ static void addPS4ProfileRTArgs(const ToolChain &TC, const ArgList &Args,
 /// this compile should be using PIC mode or not. Returns a tuple of
 /// (RelocationModel, PICLevel, IsPIE).
 static std::tuple<llvm::Reloc::Model, unsigned, bool>
-ParsePICArgs(const ToolChain &ToolChain, const llvm::Triple &Triple,
-             const ArgList &Args) {
-  // FIXME: why does this code...and so much everywhere else, use both
-  // ToolChain.getTriple() and Triple?
+ParsePICArgs(const ToolChain &ToolChain, const ArgList &Args) {
+  const llvm::Triple &EffectiveTriple = ToolChain.getEffectiveTriple();
+  const llvm::Triple &Triple = ToolChain.getTriple();
+
   bool PIE = ToolChain.isPIEDefault();
   bool PIC = PIE || ToolChain.isPICDefault();
   // The Darwin/MachO default to use PIC does not apply when using -static.
-  if (ToolChain.getTriple().isOSBinFormatMachO() &&
-      Args.hasArg(options::OPT_static))
+  if (Triple.isOSBinFormatMachO() && Args.hasArg(options::OPT_static))
     PIE = PIC = false;
   bool IsPICLevelTwo = PIC;
 
@@ -3805,8 +3817,8 @@ ParsePICArgs(const ToolChain &ToolChain, const llvm::Triple &Triple,
       Args.hasArg(options::OPT_mkernel, options::OPT_fapple_kext);
 
   // Android-specific defaults for PIC/PIE
-  if (ToolChain.getTriple().isAndroid()) {
-    switch (ToolChain.getArch()) {
+  if (Triple.isAndroid()) {
+    switch (Triple.getArch()) {
     case llvm::Triple::arm:
     case llvm::Triple::armeb:
     case llvm::Triple::thumb:
@@ -3831,7 +3843,7 @@ ParsePICArgs(const ToolChain &ToolChain, const llvm::Triple &Triple,
   }
 
   // OpenBSD-specific defaults for PIE
-  if (ToolChain.getTriple().getOS() == llvm::Triple::OpenBSD) {
+  if (Triple.getOS() == llvm::Triple::OpenBSD) {
     switch (ToolChain.getArch()) {
     case llvm::Triple::mips64:
     case llvm::Triple::mips64el:
@@ -3860,6 +3872,17 @@ ParsePICArgs(const ToolChain &ToolChain, const llvm::Triple &Triple,
                                     options::OPT_fpic, options::OPT_fno_pic,
                                     options::OPT_fPIE, options::OPT_fno_PIE,
                                     options::OPT_fpie, options::OPT_fno_pie);
+  if (Triple.isOSWindows() && LastPICArg &&
+      LastPICArg ==
+          Args.getLastArg(options::OPT_fPIC, options::OPT_fpic,
+                          options::OPT_fPIE, options::OPT_fpie)) {
+    ToolChain.getDriver().Diag(diag::err_drv_unsupported_opt_for_target)
+        << LastPICArg->getSpelling() << Triple.str();
+    if (Triple.getArch() == llvm::Triple::x86_64)
+      return std::make_tuple(llvm::Reloc::PIC_, 2U, false);
+    return std::make_tuple(llvm::Reloc::Static, 0U, false);
+  }
+
   // Check whether the tool chain trumps the PIC-ness decision. If the PIC-ness
   // is forced, then neither PIC nor PIE flags will have no effect.
   if (!ToolChain.isPICDefaultForced()) {
@@ -3874,7 +3897,7 @@ ParsePICArgs(const ToolChain &ToolChain, const llvm::Triple &Triple,
             O.matches(options::OPT_fPIE) || O.matches(options::OPT_fPIC);
       } else {
         PIE = PIC = false;
-        if (Triple.isPS4CPU()) {
+        if (EffectiveTriple.isPS4CPU()) {
           Arg *ModelArg = Args.getLastArg(options::OPT_mcmodel_EQ);
           StringRef Model = ModelArg ? ModelArg->getValue() : "";
           if (Model != "kernel") {
@@ -3890,21 +3913,22 @@ ParsePICArgs(const ToolChain &ToolChain, const llvm::Triple &Triple,
   // Introduce a Darwin and PS4-specific hack. If the default is PIC, but the
   // PIC level would've been set to level 1, force it back to level 2 PIC
   // instead.
-  if (PIC && (ToolChain.getTriple().isOSDarwin() || Triple.isPS4CPU()))
+  if (PIC && (Triple.isOSDarwin() || EffectiveTriple.isPS4CPU()))
     IsPICLevelTwo |= ToolChain.isPICDefault();
 
   // This kernel flags are a trump-card: they will disable PIC/PIE
   // generation, independent of the argument order.
-  if (KernelOrKext && ((!Triple.isiOS() || Triple.isOSVersionLT(6)) &&
-                       !Triple.isWatchOS()))
+  if (KernelOrKext &&
+      ((!EffectiveTriple.isiOS() || EffectiveTriple.isOSVersionLT(6)) &&
+       !EffectiveTriple.isWatchOS()))
     PIC = PIE = false;
 
   if (Arg *A = Args.getLastArg(options::OPT_mdynamic_no_pic)) {
     // This is a very special mode. It trumps the other modes, almost no one
     // uses it, and it isn't even valid on any OS but Darwin.
-    if (!ToolChain.getTriple().isOSDarwin())
+    if (!Triple.isOSDarwin())
       ToolChain.getDriver().Diag(diag::err_drv_unsupported_opt_for_target)
-          << A->getSpelling() << ToolChain.getTriple().str();
+          << A->getSpelling() << Triple.str();
 
     // FIXME: Warn when this flag trumps some other PIC or PIE flag.
 
@@ -3917,7 +3941,7 @@ ParsePICArgs(const ToolChain &ToolChain, const llvm::Triple &Triple,
   }
 
   bool EmbeddedPISupported;
-  switch (ToolChain.getArch()) {
+  switch (Triple.getArch()) {
     case llvm::Triple::arm:
     case llvm::Triple::armeb:
     case llvm::Triple::thumb:
@@ -3934,21 +3958,20 @@ ParsePICArgs(const ToolChain &ToolChain, const llvm::Triple &Triple,
   if (LastROPIArg && LastROPIArg->getOption().matches(options::OPT_fropi)) {
     if (!EmbeddedPISupported)
       ToolChain.getDriver().Diag(diag::err_drv_unsupported_opt_for_target)
-          << LastROPIArg->getSpelling() << ToolChain.getTriple().str();
+          << LastROPIArg->getSpelling() << Triple.str();
     ROPI = true;
   }
   Arg *LastRWPIArg = Args.getLastArg(options::OPT_frwpi, options::OPT_fno_rwpi);
   if (LastRWPIArg && LastRWPIArg->getOption().matches(options::OPT_frwpi)) {
     if (!EmbeddedPISupported)
       ToolChain.getDriver().Diag(diag::err_drv_unsupported_opt_for_target)
-          << LastRWPIArg->getSpelling() << ToolChain.getTriple().str();
+          << LastRWPIArg->getSpelling() << Triple.str();
     RWPI = true;
   }
 
   // ROPI and RWPI are not comaptible with PIC or PIE.
-  if ((ROPI || RWPI) && (PIC || PIE)) {
+  if ((ROPI || RWPI) && (PIC || PIE))
     ToolChain.getDriver().Diag(diag::err_drv_ropi_rwpi_incompatible_with_pic);
-  }
 
   if (PIC)
     return std::make_tuple(llvm::Reloc::PIC_, IsPICLevelTwo ? 2U : 1U, PIE);
@@ -3987,8 +4010,7 @@ static void AddAssemblerKPIC(const ToolChain &ToolChain, const ArgList &Args,
   llvm::Reloc::Model RelocationModel;
   unsigned PICLevel;
   bool IsPIE;
-  std::tie(RelocationModel, PICLevel, IsPIE) =
-      ParsePICArgs(ToolChain, ToolChain.getTriple(), Args);
+  std::tie(RelocationModel, PICLevel, IsPIE) = ParsePICArgs(ToolChain, Args);
 
   if (RelocationModel != llvm::Reloc::Static)
     CmdArgs.push_back("-KPIC");
@@ -4223,7 +4245,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     // Add flags implied by -fembed-bitcode.
     Args.AddLastArg(CmdArgs, options::OPT_fembed_bitcode_EQ);
     // Disable all llvm IR level optimizations.
-    CmdArgs.push_back("-disable-llvm-optzns");
+    CmdArgs.push_back("-disable-llvm-passes");
   }
   if (C.getDriver().embedBitcodeMarkerOnly())
     CmdArgs.push_back("-fembed-bitcode=marker");
@@ -4330,7 +4352,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   unsigned PICLevel;
   bool IsPIE;
   std::tie(RelocationModel, PICLevel, IsPIE) =
-      ParsePICArgs(getToolChain(), Triple, Args);
+      ParsePICArgs(getToolChain(), Args);
 
   const char *RMName = RelocationModelName(RelocationModel);
 
@@ -4444,6 +4466,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   if (Args.hasFlag(options::OPT_fstrict_enums, options::OPT_fno_strict_enums,
                    false))
     CmdArgs.push_back("-fstrict-enums");
+  if (!Args.hasFlag(options::OPT_fstrict_return, options::OPT_fno_strict_return,
+                    true))
+    CmdArgs.push_back("-fno-strict-return");
   if (Args.hasFlag(options::OPT_fstrict_vtable_pointers,
                    options::OPT_fno_strict_vtable_pointers,
                    false))
@@ -5911,6 +5936,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                                        options::OPT_fno_inline_functions))
     InlineArg->render(Args, CmdArgs);
 
+  Args.AddLastArg(CmdArgs, options::OPT_fexperimental_new_pass_manager,
+                  options::OPT_fno_experimental_new_pass_manager);
+
   ObjCRuntime objcRuntime = AddObjCRuntimeArgs(Args, CmdArgs, rewriteKind);
 
   // -fobjc-dispatch-method is only relevant with the nonfragile-abi, and
@@ -6007,6 +6035,13 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   if (!Args.hasFlag(options::OPT_fassume_sane_operator_new,
                     options::OPT_fno_assume_sane_operator_new))
     CmdArgs.push_back("-fno-assume-sane-operator-new");
+
+  // -frelaxed-template-template-args is off by default, as it is a severe
+  // breaking change until a corresponding change to template partial ordering
+  // is provided.
+  if (Args.hasFlag(options::OPT_frelaxed_template_template_args,
+                   options::OPT_fno_relaxed_template_template_args, false))
+    CmdArgs.push_back("-frelaxed-template-template-args");
 
   // -fsized-deallocation is off by default, as it is an ABI-breaking change for
   // most platforms.
@@ -6387,8 +6422,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
     // We translate this by hand to the -cc1 argument, since nightly test uses
     // it and developers have been trained to spell it with -mllvm.
-    if (StringRef(A->getValue(0)) == "-disable-llvm-optzns") {
-      CmdArgs.push_back("-disable-llvm-optzns");
+    if (StringRef(A->getValue(0)) == "-disable-llvm-passes") {
+      CmdArgs.push_back("-disable-llvm-passes");
     } else
       A->render(Args, CmdArgs);
   }
@@ -7037,7 +7072,7 @@ void ClangAs::ConstructJob(Compilation &C, const JobAction &JA,
   unsigned PICLevel;
   bool IsPIE;
   std::tie(RelocationModel, PICLevel, IsPIE) =
-      ParsePICArgs(getToolChain(), Triple, Args);
+      ParsePICArgs(getToolChain(), Args);
 
   const char *RMName = RelocationModelName(RelocationModel);
   if (RMName) {
@@ -9667,15 +9702,13 @@ void gnutools::Assembler::ConstructJob(Compilation &C, const JobAction &JA,
                                        const char *LinkingOutput) const {
   claimNoWarnArgs(Args);
 
-  const llvm::Triple &Triple = getToolChain().getEffectiveTriple();
-
   ArgStringList CmdArgs;
 
   llvm::Reloc::Model RelocationModel;
   unsigned PICLevel;
   bool IsPIE;
   std::tie(RelocationModel, PICLevel, IsPIE) =
-      ParsePICArgs(getToolChain(), Triple, Args);
+      ParsePICArgs(getToolChain(), Args);
 
   switch (getToolChain().getArch()) {
   default:

@@ -1,5 +1,5 @@
-// RUN: %clang_cc1 -triple i686-windows-msvc   -emit-llvm -std=c++1y -fno-threadsafe-statics -fms-extensions -O1 -mconstructor-aliases -disable-llvm-optzns -o - %s -w -fms-compatibility-version=19.00 | FileCheck --check-prefix=MSC --check-prefix=M32 -check-prefix=MSVC2015 -check-prefix=M32MSVC2015 %s
-// RUN: %clang_cc1 -triple i686-windows-msvc   -emit-llvm -std=c++1y -fno-threadsafe-statics -fms-extensions -O1 -mconstructor-aliases -disable-llvm-optzns -o - %s -w -fms-compatibility-version=18.00 | FileCheck --check-prefix=MSC --check-prefix=M32 -check-prefix=MSVC2013 -check-prefix=M32MSVC2013 %s
+// RUN: %clang_cc1 -triple i686-windows-msvc   -emit-llvm -std=c++1y -fno-threadsafe-statics -fms-extensions -O1 -mconstructor-aliases -disable-llvm-passes -o - %s -w -fms-compatibility-version=19.00 | FileCheck --check-prefix=MSC --check-prefix=M32 -check-prefix=MSVC2015 -check-prefix=M32MSVC2015 %s
+// RUN: %clang_cc1 -triple i686-windows-msvc   -emit-llvm -std=c++1y -fno-threadsafe-statics -fms-extensions -O1 -mconstructor-aliases -disable-llvm-passes -o - %s -w -fms-compatibility-version=18.00 | FileCheck --check-prefix=MSC --check-prefix=M32 -check-prefix=MSVC2013 -check-prefix=M32MSVC2013 %s
 
 // RUN: %clang_cc1 -triple x86_64-windows-msvc -emit-llvm -std=c++1y -fno-threadsafe-statics -fms-extensions -O0 -o - %s -w -fms-compatibility-version=19.00 | FileCheck --check-prefix=MSC --check-prefix=M64 -check-prefix=MSVC2015 -check-prefix=M64MSVC2015 %s
 // RUN: %clang_cc1 -triple x86_64-windows-msvc -emit-llvm -std=c++1y -fno-threadsafe-statics -fms-extensions -O0 -o - %s -w -fms-compatibility-version=18.00 | FileCheck --check-prefix=MSC --check-prefix=M64 -check-prefix=MSVC2013 -check-prefix=M64MSVC2013 %s
@@ -514,6 +514,18 @@ struct __declspec(dllexport) ClassWithClosure {
 // M32-DAG:   call %struct.ClassWithClosure* (%struct.ClassWithClosure*, ...) @"\01??0ClassWithClosure@@QAA@ZZ"(%struct.ClassWithClosure* %[[this]])
 // M32-DAG:   ret void
 };
+
+template <typename T> struct TemplateWithClosure {
+  TemplateWithClosure(int x = sizeof(T)) {}
+};
+extern template struct TemplateWithClosure<char>;
+template struct __declspec(dllexport) TemplateWithClosure<char>;
+extern template struct TemplateWithClosure<int>;
+template struct __declspec(dllexport) TemplateWithClosure<int>;
+// M32-DAG: define weak_odr dllexport x86_thiscallcc void @"\01??_F?$TemplateWithClosure@D@@QAEXXZ"({{.*}}) {{#[0-9]+}} comdat
+// M32-DAG:   call {{.*}} @"\01??0?$TemplateWithClosure@D@@QAE@H@Z"({{.*}}, i32 1)
+// M32-DAG: define weak_odr dllexport x86_thiscallcc void @"\01??_F?$TemplateWithClosure@H@@QAEXXZ"({{.*}}) {{#[0-9]+}} comdat
+// M32-DAG:   call {{.*}} @"\01??0?$TemplateWithClosure@H@@QAE@H@Z"({{.*}}, i32 4)
 
 struct __declspec(dllexport) NestedOuter {
   DELETE_IMPLICIT_MEMBERS(NestedOuter);
