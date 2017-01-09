@@ -604,7 +604,8 @@ clang::MakeDeductionFailureInfo(ASTContext &Context,
     Result.Data = Info.Param.getOpaqueValue();
     break;
 
-  case Sema::TDK_DeducedMismatch: {
+  case Sema::TDK_DeducedMismatch:
+  case Sema::TDK_DeducedMismatchNested: {
     // FIXME: Should allocate from normal heap so that we can free this later.
     auto *Saved = new (Context) DFIDeducedMismatchArgs;
     Saved->FirstArg = Info.FirstArg;
@@ -664,6 +665,7 @@ void DeductionFailureInfo::Destroy() {
   case Sema::TDK_Inconsistent:
   case Sema::TDK_Underqualified:
   case Sema::TDK_DeducedMismatch:
+  case Sema::TDK_DeducedMismatchNested:
   case Sema::TDK_NonDeducedMismatch:
     // FIXME: Destroy the data?
     Data = nullptr;
@@ -699,6 +701,7 @@ TemplateParameter DeductionFailureInfo::getTemplateParameter() {
   case Sema::TDK_TooFewArguments:
   case Sema::TDK_SubstitutionFailure:
   case Sema::TDK_DeducedMismatch:
+  case Sema::TDK_DeducedMismatchNested:
   case Sema::TDK_NonDeducedMismatch:
   case Sema::TDK_CUDATargetMismatch:
     return TemplateParameter();
@@ -735,6 +738,7 @@ TemplateArgumentList *DeductionFailureInfo::getTemplateArgumentList() {
     return nullptr;
 
   case Sema::TDK_DeducedMismatch:
+  case Sema::TDK_DeducedMismatchNested:
     return static_cast<DFIDeducedMismatchArgs*>(Data)->TemplateArgs;
 
   case Sema::TDK_SubstitutionFailure:
@@ -764,6 +768,7 @@ const TemplateArgument *DeductionFailureInfo::getFirstArg() {
   case Sema::TDK_Inconsistent:
   case Sema::TDK_Underqualified:
   case Sema::TDK_DeducedMismatch:
+  case Sema::TDK_DeducedMismatchNested:
   case Sema::TDK_NonDeducedMismatch:
     return &static_cast<DFIArguments*>(Data)->FirstArg;
 
@@ -791,6 +796,7 @@ const TemplateArgument *DeductionFailureInfo::getSecondArg() {
   case Sema::TDK_Inconsistent:
   case Sema::TDK_Underqualified:
   case Sema::TDK_DeducedMismatch:
+  case Sema::TDK_DeducedMismatchNested:
   case Sema::TDK_NonDeducedMismatch:
     return &static_cast<DFIArguments*>(Data)->SecondArg;
 
@@ -803,11 +809,14 @@ const TemplateArgument *DeductionFailureInfo::getSecondArg() {
 }
 
 llvm::Optional<unsigned> DeductionFailureInfo::getCallArgIndex() {
-  if (static_cast<Sema::TemplateDeductionResult>(Result) ==
-        Sema::TDK_DeducedMismatch)
+  switch (static_cast<Sema::TemplateDeductionResult>(Result)) {
+  case Sema::TDK_DeducedMismatch:
+  case Sema::TDK_DeducedMismatchNested:
     return static_cast<DFIDeducedMismatchArgs*>(Data)->CallArgIndex;
 
-  return llvm::None;
+  default:
+    return llvm::None;
+  }
 }
 
 void OverloadCandidateSet::destroyCandidates() {
@@ -5962,6 +5971,31 @@ Sema::AddOverloadCandidate(FunctionDecl *Function,
     }
   }
 
+  // C++ [over.best.ics]p4+: (proposed DR resolution)
+  //   If the target is the first parameter of an inherited constructor when
+  //   constructing an object of type C with an argument list that has exactly
+  //   one expression, an implicit conversion sequence cannot be formed if C is
+  //   reference-related to the type that the argument would have after the
+  //   application of the user-defined conversion (if any) and before the final
+  //   standard conversion sequence. 
+  auto *Shadow = dyn_cast<ConstructorUsingShadowDecl>(FoundDecl.getDecl());
+  if (Shadow && Args.size() == 1 && !isa<InitListExpr>(Args.front())) {
+    bool DerivedToBase, ObjCConversion, ObjCLifetimeConversion;
+    QualType ConvertedArgumentType = Args.front()->getType();
+    if (Candidate.Conversions[0].isUserDefined())
+      ConvertedArgumentType =
+          Candidate.Conversions[0].UserDefined.After.getFromType();
+    if (CompareReferenceRelationship(Args.front()->getLocStart(),
+                                     Context.getRecordType(Shadow->getParent()),
+                                     ConvertedArgumentType, DerivedToBase,
+                                     ObjCConversion,
+                                     ObjCLifetimeConversion) >= Ref_Related) {
+      Candidate.Viable = false;
+      Candidate.FailureKind = ovl_fail_inhctor_slice;
+      return;
+    }
+  }
+
   if (EnableIfAttr *FailedAttr = CheckEnableIf(Function, Args)) {
     Candidate.Viable = false;
     Candidate.FailureKind = ovl_fail_enable_if;
@@ -9682,7 +9716,8 @@ static void DiagnoseBadDeduction(Sema &S, NamedDecl *Found, Decl *Templated,
     return;
   }
 
-  case Sema::TDK_DeducedMismatch: {
+  case Sema::TDK_DeducedMismatch:
+  case Sema::TDK_DeducedMismatchNested: {
     // Format the template argument list into the argument string.
     SmallString<128> TemplateArgString;
     if (TemplateArgumentList *Args =
@@ -9695,7 +9730,8 @@ static void DiagnoseBadDeduction(Sema &S, NamedDecl *Found, Decl *Templated,
     S.Diag(Templated->getLocation(), diag::note_ovl_candidate_deduced_mismatch)
         << (*DeductionFailure.getCallArgIndex() + 1)
         << *DeductionFailure.getFirstArg() << *DeductionFailure.getSecondArg()
-        << TemplateArgString;
+        << TemplateArgString
+        << (DeductionFailure.Result == Sema::TDK_DeducedMismatchNested);
     break;
   }
 
@@ -9916,6 +9952,12 @@ static void NoteFunctionCandidate(Sema &S, OverloadCandidate *Cand,
   case ovl_fail_ext_disabled:
     return DiagnoseOpenCLExtensionDisabled(S, Cand);
 
+  case ovl_fail_inhctor_slice:
+    S.Diag(Fn->getLocation(),
+           diag::note_ovl_candidate_inherited_constructor_slice);
+    MaybeEmitInheritedConstructorNote(S, Cand->FoundDecl);
+    return;
+
   case ovl_fail_addr_not_available: {
     bool Available = checkAddressOfCandidateIsAvailable(S, Cand->Function);
     (void)Available;
@@ -10012,6 +10054,7 @@ static unsigned RankDeductionFailure(const DeductionFailureInfo &DFI) {
 
   case Sema::TDK_SubstitutionFailure:
   case Sema::TDK_DeducedMismatch:
+  case Sema::TDK_DeducedMismatchNested:
   case Sema::TDK_NonDeducedMismatch:
   case Sema::TDK_MiscellaneousDeductionFailure:
   case Sema::TDK_CUDATargetMismatch:
