@@ -1363,9 +1363,9 @@ void Clang::AddAArch64TargetArgs(const ArgList &Args,
                                options::OPT_mno_global_merge)) {
     CmdArgs.push_back("-backend-option");
     if (A->getOption().matches(options::OPT_mno_global_merge))
-      CmdArgs.push_back("-aarch64-global-merge=false");
+      CmdArgs.push_back("-aarch64-enable-global-merge=false");
     else
-      CmdArgs.push_back("-aarch64-global-merge=true");
+      CmdArgs.push_back("-aarch64-enable-global-merge=true");
   }
 }
 
@@ -4238,8 +4238,16 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     if (JA.getType() == types::TY_LLVM_BC)
       CmdArgs.push_back("-emit-llvm-uselists");
 
-    if (D.isUsingLTO())
+    if (D.isUsingLTO()) {
       Args.AddLastArg(CmdArgs, options::OPT_flto, options::OPT_flto_EQ);
+
+      // The Darwin linker currently uses the legacy LTO API, which does not
+      // support LTO unit features (CFI, whole program vtable opt) under
+      // ThinLTO.
+      if (!getToolChain().getTriple().isOSDarwin() ||
+          D.getLTOMode() == LTOK_Full)
+        CmdArgs.push_back("-flto-unit");
+    }
   }
 
   if (const Arg *A = Args.getLastArg(options::OPT_fthinlto_index_EQ)) {
@@ -5606,6 +5614,10 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     else
       A->render(Args, CmdArgs);
   }
+
+  if (Args.hasFlag(options::OPT_fdebug_info_for_profiling,
+                   options::OPT_fno_debug_info_for_profiling, false))
+    CmdArgs.push_back("-fdebug-info-for-profiling");
 
   // -fbuiltin is default unless -mkernel is used.
   bool UseBuiltins =

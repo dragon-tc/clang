@@ -3207,7 +3207,6 @@ public:
                              bool IsProtocolMethodDecl);
 
   typedef llvm::SmallPtrSet<Selector, 8> SelectorSet;
-  typedef llvm::DenseMap<Selector, ObjCMethodDecl*> ProtocolsMethodsMap;
 
   /// CheckImplementationIvars - This routine checks if the instance variables
   /// listed in the implelementation match those listed in the interface.
@@ -5937,7 +5936,8 @@ public:
 
   TypeResult
   ActOnTemplateIdType(CXXScopeSpec &SS, SourceLocation TemplateKWLoc,
-                      TemplateTy Template, SourceLocation TemplateLoc,
+                      TemplateTy Template, IdentifierInfo *TemplateII,
+                      SourceLocation TemplateIILoc,
                       SourceLocation LAngleLoc,
                       ASTTemplateArgsPtr TemplateArgs,
                       SourceLocation RAngleLoc,
@@ -5983,13 +5983,10 @@ public:
                                const DeclarationNameInfo &NameInfo,
                                const TemplateArgumentListInfo *TemplateArgs);
 
-  TemplateNameKind ActOnDependentTemplateName(Scope *S,
-                                              CXXScopeSpec &SS,
-                                              SourceLocation TemplateKWLoc,
-                                              UnqualifiedId &Name,
-                                              ParsedType ObjectType,
-                                              bool EnteringContext,
-                                              TemplateTy &Template);
+  TemplateNameKind ActOnDependentTemplateName(
+      Scope *S, CXXScopeSpec &SS, SourceLocation TemplateKWLoc,
+      UnqualifiedId &Name, ParsedType ObjectType, bool EnteringContext,
+      TemplateTy &Template, bool AllowInjectedClassName = false);
 
   DeclResult
   ActOnClassTemplateSpecialization(Scope *S, unsigned TagSpec, TagUseKind TUK,
@@ -6114,12 +6111,17 @@ public:
   /// \param Converted Will receive the converted, canonicalized template
   /// arguments.
   ///
+  /// \param UpdateArgsWithConversions If \c true, update \p TemplateArgs to
+  /// contain the converted forms of the template arguments as written.
+  /// Otherwise, \p TemplateArgs will not be modified.
+  ///
   /// \returns true if an error occurred, false otherwise.
   bool CheckTemplateArgumentList(TemplateDecl *Template,
                                  SourceLocation TemplateLoc,
                                  TemplateArgumentListInfo &TemplateArgs,
                                  bool PartialTemplateArgs,
-                           SmallVectorImpl<TemplateArgument> &Converted);
+                                 SmallVectorImpl<TemplateArgument> &Converted,
+                                 bool UpdateArgsWithConversions = true);
 
   bool CheckTemplateTypeArgument(TemplateTypeParmDecl *Param,
                                  TemplateArgumentLoc &Arg,
@@ -6208,7 +6210,8 @@ public:
   /// \param SS the nested-name-specifier following the typename (e.g., 'T::').
   /// \param TemplateLoc the location of the 'template' keyword, if any.
   /// \param TemplateName The template name.
-  /// \param TemplateNameLoc The location of the template name.
+  /// \param TemplateII The identifier used to name the template.
+  /// \param TemplateIILoc The location of the template name.
   /// \param LAngleLoc The location of the opening angle bracket  ('<').
   /// \param TemplateArgs The template arguments.
   /// \param RAngleLoc The location of the closing angle bracket  ('>').
@@ -6217,7 +6220,8 @@ public:
                     const CXXScopeSpec &SS,
                     SourceLocation TemplateLoc,
                     TemplateTy TemplateName,
-                    SourceLocation TemplateNameLoc,
+                    IdentifierInfo *TemplateII,
+                    SourceLocation TemplateIILoc,
                     SourceLocation LAngleLoc,
                     ASTTemplateArgsPtr TemplateArgs,
                     SourceLocation RAngleLoc);
@@ -8339,6 +8343,9 @@ public:
   bool isInOpenMPDeclareTargetContext() const {
     return IsInOpenMPDeclareTargetContext;
   }
+
+  /// Return the number of captured regions created for an OpenMP directive.
+  static int getOpenMPCaptureLevels(OpenMPDirectiveKind Kind);
 
   /// \brief Initialization of captured region for OpenMP region.
   void ActOnOpenMPRegionStart(OpenMPDirectiveKind DKind, Scope *CurScope);

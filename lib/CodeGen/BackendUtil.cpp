@@ -573,6 +573,7 @@ void EmitAssemblyHelper::CreateTargetMachine(bool MustCreateTM) {
   Options.DisableIntegratedAS = CodeGenOpts.DisableIntegratedAS;
   Options.CompressDebugSections = CodeGenOpts.CompressDebugSections;
   Options.RelaxELFRelocations = CodeGenOpts.RelaxELFRelocations;
+  Options.DebugInfoForProfiling = CodeGenOpts.DebugInfoForProfiling;
 
   // Set EABI version.
   Options.EABIVersion = llvm::StringSwitch<llvm::EABI>(TargetOpts.EABIVersion)
@@ -688,9 +689,11 @@ void EmitAssemblyHelper::EmitAssembly(BackendAction Action,
     break;
 
   case Backend_EmitBC:
-    PerModulePasses.add(createBitcodeWriterPass(
-        *OS, CodeGenOpts.EmitLLVMUseLists, CodeGenOpts.EmitSummaryIndex,
-        CodeGenOpts.EmitSummaryIndex));
+    if (CodeGenOpts.EmitSummaryIndex)
+      PerModulePasses.add(createWriteThinLTOBitcodePass(*OS));
+    else
+      PerModulePasses.add(
+          createBitcodeWriterPass(*OS, CodeGenOpts.EmitLLVMUseLists));
     break;
 
   case Backend_EmitLL:
@@ -999,6 +1002,7 @@ static const char* getSectionNameForBitcode(const Triple &T) {
     return "__LLVM,__bitcode";
   case Triple::COFF:
   case Triple::ELF:
+  case Triple::Wasm:
   case Triple::UnknownObjectFormat:
     return ".llvmbc";
   }
@@ -1011,6 +1015,7 @@ static const char* getSectionNameForCommandline(const Triple &T) {
     return "__LLVM,__cmdline";
   case Triple::COFF:
   case Triple::ELF:
+  case Triple::Wasm:
   case Triple::UnknownObjectFormat:
     return ".llvmcmd";
   }
