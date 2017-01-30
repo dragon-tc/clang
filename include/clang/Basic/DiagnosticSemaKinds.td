@@ -1870,16 +1870,20 @@ def err_illegal_decl_array_of_auto : Error<
 def err_new_array_of_auto : Error<
   "cannot allocate array of 'auto'">;
 def err_auto_not_allowed : Error<
-  "%select{'auto'|'decltype(auto)'|'__auto_type'}0 not allowed "
+  "%select{'auto'|'decltype(auto)'|'__auto_type'|"
+  "use of "
+  "%select{class template|function template|variable template|alias template|"
+  "template template parameter|template}2 %3 requires template arguments; "
+  "argument deduction}0 not allowed "
   "%select{in function prototype"
   "|in non-static struct member|in struct member"
   "|in non-static union member|in union member"
   "|in non-static class member|in interface member"
-  "|in exception declaration|in template parameter|in block literal"
+  "|in exception declaration|in template parameter until C++1z|in block literal"
   "|in template argument|in typedef|in type alias|in function return type"
   "|in conversion function type|here|in lambda parameter"
-  "|in type allocated by 'new'|in K&R-style function parameter}1"
-  "%select{|||||||| until C++1z||||||||||}1">;
+  "|in type allocated by 'new'|in K&R-style function parameter"
+  "|in template parameter|in friend declaration}1">;
 def err_auto_not_allowed_var_inst : Error<
   "'auto' variable template instantiation is not allowed">;
 def err_auto_var_requires_init : Error<
@@ -1943,6 +1947,14 @@ def err_decltype_auto_compound_type : Error<
   "cannot form %select{pointer to|reference to|array of}0 'decltype(auto)'">;
 def err_decltype_auto_initializer_list : Error<
   "cannot deduce 'decltype(auto)' from initializer list">;
+
+// C++1z deduced class template specialization types
+def err_deduced_class_template_compound_type : Error<
+  "cannot %select{form pointer to|form reference to|form array of|"
+  "form function returning|use parentheses when declaring variable with}0 "
+  "deduced class template specialization type">;
+def err_deduced_class_template_not_supported : Error<
+  "deduction of template arguments for class templates is not yet supported">;
 
 // C++1y deduced return types
 def err_auto_fn_deduction_failure : Error<
@@ -5185,7 +5197,7 @@ def err_arc_inconsistent_property_ownership : Error<
 def warn_block_capture_autoreleasing : Warning<
   "block captures an autoreleasing out-parameter, which may result in "
   "use-after-free bugs">,
-  InGroup<BlockCaptureAutoReleasing>, DefaultIgnore;
+  InGroup<BlockCaptureAutoReleasing>;
 def note_declare_parameter_autoreleasing : Note<
   "declare the parameter __autoreleasing explicitly to suppress this warning">;
 def note_declare_parameter_strong : Note<
@@ -8248,9 +8260,9 @@ def err_opencl_enqueue_kernel_local_size_args : Error<
 def err_opencl_enqueue_kernel_invalid_local_size_type : Error<
   "illegal call to enqueue_kernel, parameter needs to be specified as integer type">;
 def err_opencl_enqueue_kernel_blocks_non_local_void_args : Error<
-  "blocks used in device side enqueue are expected to have parameters of type 'local void*'">;
+  "blocks used in enqueue_kernel call are expected to have parameters of type 'local void*'">;
 def err_opencl_enqueue_kernel_blocks_no_args : Error<
-  "blocks in this form of device side enqueue call are expected to have have no parameters">;
+  "blocks with parameters are not accepted in this prototype of enqueue_kernel call">;
 
 // OpenCL v2.2 s2.1.2.3 - Vector Component Access
 def ext_opencl_ext_vector_type_rgba_selector: ExtWarn<
