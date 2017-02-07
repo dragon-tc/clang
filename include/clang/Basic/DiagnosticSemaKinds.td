@@ -1884,6 +1884,11 @@ def err_auto_not_allowed : Error<
   "|in conversion function type|here|in lambda parameter"
   "|in type allocated by 'new'|in K&R-style function parameter"
   "|in template parameter|in friend declaration}1">;
+def err_dependent_deduced_tst : Error<
+  "typename specifier refers to "
+  "%select{class template|function template|variable template|alias template|"
+  "template template parameter|template}0 member in %1; "
+  "argument deduction not allowed here">;
 def err_auto_not_allowed_var_inst : Error<
   "'auto' variable template instantiation is not allowed">;
 def err_auto_var_requires_init : Error<
@@ -4319,6 +4324,8 @@ def note_typename_refers_here : Note<
     "referenced member %0 is declared here">;
 def err_typename_missing : Error<
   "missing 'typename' prior to dependent type name '%0%1'">;
+def err_typename_missing_template : Error<
+  "missing 'typename' prior to dependent type template name '%0%1'">;
 def ext_typename_missing : ExtWarn<
   "missing 'typename' prior to dependent type name '%0%1'">,
   InGroup<DiagGroup<"typename-missing">>;
@@ -7034,7 +7041,7 @@ def err_incomplete_type_used_in_type_trait_expr : Error<
 def err_require_constant_init_failed : Error<
   "variable does not have a constant initializer">;
 def note_declared_required_constant_init_here : Note<
-  "required by 'require_constant_initializer' attribute here">;
+  "required by 'require_constant_initialization' attribute here">;
 
 def err_dimension_expr_not_constant_integer : Error<
   "dimension expression does not evaluate to a constant unsigned int">;

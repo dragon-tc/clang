@@ -202,7 +202,8 @@ UnwrappedLineParser::UnwrappedLineParser(const FormatStyle &Style,
                                          ArrayRef<FormatToken *> Tokens,
                                          UnwrappedLineConsumer &Callback)
     : Line(new UnwrappedLine), MustBreakBeforeNextToken(false),
-      CurrentLines(&Lines), Style(Style), Keywords(Keywords), Tokens(nullptr),
+      CurrentLines(&Lines), Style(Style), Keywords(Keywords),
+      CommentPragmasRegex(Style.CommentPragmas), Tokens(nullptr),
       Callback(Callback), AllTokens(Tokens), PPBranchLevel(-1) {}
 
 void UnwrappedLineParser::reset() {
@@ -2048,37 +2049,109 @@ static bool isLineComment(const FormatToken &FormatTok) {
 // Checks if \p FormatTok is a line comment that continues the line comment
 // section on \p Line.
 static bool continuesLineComment(const FormatToken &FormatTok,
-                                 const UnwrappedLine &Line) {
+                                 const UnwrappedLine &Line,
+                                 llvm::Regex &CommentPragmasRegex) {
   if (Line.Tokens.empty())
     return false;
-  const FormatToken &FirstLineTok = *Line.Tokens.front().Tok;
+
+  StringRef IndentContent = FormatTok.TokenText;
+  if (FormatTok.TokenText.startswith("//") ||
+      FormatTok.TokenText.startswith("/*"))
+    IndentContent = FormatTok.TokenText.substr(2);
+  if (CommentPragmasRegex.match(IndentContent))
+    return false;
+
   // If Line starts with a line comment, then FormatTok continues the comment
-  // section if its original column is greater or equal to the  original start
+  // section if its original column is greater or equal to the original start
   // column of the line.
   //
-  // If Line starts with a a different token, then FormatTok continues the
-  // comment section if its original column greater than the original start
-  // column of the line.
+  // Define the min column token of a line as follows: if a line ends in '{' or
+  // contains a '{' followed by a line comment, then the min column token is
+  // that '{'. Otherwise, the min column token of the line is the first token of
+  // the line.
+  //
+  // If Line starts with a token other than a line comment, then FormatTok
+  // continues the comment section if its original column is greater than the
+  // original start column of the min column token of the line.
   //
   // For example, the second line comment continues the first in these cases:
+  //
   // // first line
   // // second line
+  //
   // and:
+  //
   // // first line
   //  // second line
+  //
   // and:
+  //
   // int i; // first line
   //  // second line
   //
+  // and:
+  //
+  // do { // first line
+  //      // second line
+  //   int i;
+  // } while (true);
+  //
+  // and:
+  //
+  // enum {
+  //   a, // first line
+  //    // second line
+  //   b
+  // };
+  //
   // The second line comment doesn't continue the first in these cases:
+  //
   //   // first line
   //  // second line
+  //
   // and:
+  //
   // int i; // first line
   // // second line
+  //
+  // and:
+  //
+  // do { // first line
+  //   // second line
+  //   int i;
+  // } while (true);
+  //
+  // and:
+  //
+  // enum {
+  //   a, // first line
+  //   // second line
+  // };
+  const FormatToken *MinColumnToken = Line.Tokens.front().Tok;
+
+  // Scan for '{//'. If found, use the column of '{' as a min column for line
+  // comment section continuation.
+  const FormatToken *PreviousToken = nullptr;
+  for (const UnwrappedLineNode Node : Line.Tokens) {
+    if (PreviousToken && PreviousToken->is(tok::l_brace) &&
+        isLineComment(*Node.Tok)) {
+      MinColumnToken = PreviousToken;
+      break;
+    }
+    PreviousToken = Node.Tok;
+
+    // Grab the last newline preceding a token in this unwrapped line.
+    if (Node.Tok->NewlinesBefore > 0) {
+      MinColumnToken = Node.Tok;
+    }
+  }
+  if (PreviousToken && PreviousToken->is(tok::l_brace)) {
+    MinColumnToken = PreviousToken;
+  }
+
   unsigned MinContinueColumn =
-      FirstLineTok.OriginalColumn +
-      ((isLineComment(FirstLineTok) && !FirstLineTok.Next) ? 0 : 1);
+      MinColumnToken->OriginalColumn +
+      (isLineComment(*MinColumnToken) ? 0 : 1);
   return isLineComment(FormatTok) && FormatTok.NewlinesBefore == 1 &&
          isLineComment(*(Line.Tokens.back().Tok)) &&
          FormatTok.OriginalColumn >= MinContinueColumn;
@@ -2092,8 +2165,15 @@ void UnwrappedLineParser::flushComments(bool NewlineBeforeNext) {
        I != E; ++I) {
     // Line comments that belong to the same line comment section are put on the
     // same line since later we might want to reflow content between them.
-    // See BreakableToken.
-    if (isOnNewLine(**I) && JustComments && !continuesLineComment(**I, *Line))
+    // Additional fine-grained breaking of line comment sections is controlled
+    // by the class BreakableLineCommentSection in case it is desirable to keep
+    // several line comment sections in the same unwrapped line.
+    //
+    // FIXME: Consider putting separate line comment sections as children to the
+    // unwrapped line instead.
+    (*I)->ContinuesLineCommentSection =
+        continuesLineComment(**I, *Line, CommentPragmasRegex);
+    if (isOnNewLine(**I) && JustComments && !(*I)->ContinuesLineCommentSection)
       addUnwrappedLine();
     pushToken(*I);
   }
@@ -2159,7 +2239,9 @@ void UnwrappedLineParser::readToken() {
 
     if (!FormatTok->Tok.is(tok::comment))
       return;
-    if (!continuesLineComment(*FormatTok, *Line) &&
+    FormatTok->ContinuesLineCommentSection =
+        continuesLineComment(*FormatTok, *Line, CommentPragmasRegex);
+    if (!FormatTok->ContinuesLineCommentSection &&
         (isOnNewLine(*FormatTok) || FormatTok->IsFirst)) {
       CommentsInCurrentLine = false;
     }

@@ -21,6 +21,7 @@
 #include "Encoding.h"
 #include "TokenAnnotator.h"
 #include "WhitespaceManager.h"
+#include "llvm/Support/Regex.h"
 #include <utility>
 
 namespace clang {
@@ -118,7 +119,8 @@ public:
   /// needs to be reformatted before any breaks are made.
   virtual Split getSplitBefore(unsigned LineIndex,
                                unsigned PreviousEndColumn,
-                               unsigned ColumnLimit) const {
+                               unsigned ColumnLimit,
+                               llvm::Regex& CommentPragmasRegex) const {
     return Split(StringRef::npos, 0);
   }
 
@@ -149,14 +151,12 @@ public:
   virtual void updateNextToken(LineState &State) const {}
 
 protected:
-  BreakableToken(const FormatToken &Tok, unsigned IndentLevel,
-                 bool InPPDirective, encoding::Encoding Encoding,
-                 const FormatStyle &Style)
-      : Tok(Tok), IndentLevel(IndentLevel), InPPDirective(InPPDirective),
-        Encoding(Encoding), Style(Style) {}
+  BreakableToken(const FormatToken &Tok, bool InPPDirective,
+                 encoding::Encoding Encoding, const FormatStyle &Style)
+      : Tok(Tok), InPPDirective(InPPDirective), Encoding(Encoding),
+        Style(Style) {}
 
   const FormatToken &Tok;
-  const unsigned IndentLevel;
   const bool InPPDirective;
   const encoding::Encoding Encoding;
   const FormatStyle &Style;
@@ -172,10 +172,9 @@ public:
                                    StringRef::size_type Length) const override;
 
 protected:
-  BreakableSingleLineToken(const FormatToken &Tok, unsigned IndentLevel,
-                           unsigned StartColumn, StringRef Prefix,
-                           StringRef Postfix, bool InPPDirective,
-                           encoding::Encoding Encoding,
+  BreakableSingleLineToken(const FormatToken &Tok, unsigned StartColumn,
+                           StringRef Prefix, StringRef Postfix,
+                           bool InPPDirective, encoding::Encoding Encoding,
                            const FormatStyle &Style);
 
   // The column in which the token starts.
@@ -194,10 +193,10 @@ public:
   ///
   /// \p StartColumn specifies the column in which the token will start
   /// after formatting.
-  BreakableStringLiteral(const FormatToken &Tok, unsigned IndentLevel,
-                         unsigned StartColumn, StringRef Prefix,
-                         StringRef Postfix, bool InPPDirective,
-                         encoding::Encoding Encoding, const FormatStyle &Style);
+  BreakableStringLiteral(const FormatToken &Tok, unsigned StartColumn,
+                         StringRef Prefix, StringRef Postfix,
+                         bool InPPDirective, encoding::Encoding Encoding,
+                         const FormatStyle &Style);
 
   Split getSplit(unsigned LineIndex, unsigned TailOffset,
                  unsigned ColumnLimit) const override;
@@ -215,10 +214,10 @@ protected:
   /// after formatting, while \p OriginalStartColumn specifies in which
   /// column the comment started before formatting.
   /// If the comment starts a line after formatting, set \p FirstInLine to true.
-  BreakableComment(const FormatToken &Token, unsigned IndentLevel,
-                   unsigned StartColumn, unsigned OriginalStartColumn,
-                   bool FirstInLine, bool InPPDirective,
-                   encoding::Encoding Encoding, const FormatStyle &Style);
+  BreakableComment(const FormatToken &Token, unsigned StartColumn,
+                   unsigned OriginalStartColumn, bool FirstInLine,
+                   bool InPPDirective, encoding::Encoding Encoding,
+                   const FormatStyle &Style);
 
 public:
   unsigned getLineCount() const override;
@@ -241,7 +240,8 @@ protected:
 
   // Checks if the content of line LineIndex may be reflown with the previous
   // line.
-  bool mayReflow(unsigned LineIndex) const;
+  virtual bool mayReflow(unsigned LineIndex,
+                         llvm::Regex &CommentPragmasRegex) const = 0;
 
   // Contains the original text of the lines of the block comment.
   //
@@ -299,10 +299,10 @@ protected:
 
 class BreakableBlockComment : public BreakableComment {
 public:
-  BreakableBlockComment(const FormatToken &Token, unsigned IndentLevel,
-                        unsigned StartColumn, unsigned OriginalStartColumn,
-                        bool FirstInLine, bool InPPDirective,
-                        encoding::Encoding Encoding, const FormatStyle &Style);
+  BreakableBlockComment(const FormatToken &Token, unsigned StartColumn,
+                        unsigned OriginalStartColumn, bool FirstInLine,
+                        bool InPPDirective, encoding::Encoding Encoding,
+                        const FormatStyle &Style);
 
   unsigned getLineLengthAfterSplit(unsigned LineIndex,
                                    unsigned TailOffset,
@@ -310,7 +310,8 @@ public:
   void insertBreak(unsigned LineIndex, unsigned TailOffset, Split Split,
                    WhitespaceManager &Whitespaces) override;
   Split getSplitBefore(unsigned LineIndex, unsigned PreviousEndColumn,
-                       unsigned ColumnLimit) const override;
+                       unsigned ColumnLimit,
+                       llvm::Regex &CommentPragmasRegex) const override;
   unsigned getLineLengthAfterSplitBefore(unsigned LineIndex,
                                          unsigned TailOffset,
                                          unsigned PreviousEndColumn,
@@ -320,6 +321,8 @@ public:
                                unsigned ColumnLimit,
                                Split SplitBefore,
                                WhitespaceManager &Whitespaces) override;
+  bool mayReflow(unsigned LineIndex,
+                 llvm::Regex &CommentPragmasRegex) const override;
 
 private:
   // Rearranges the whitespace between Lines[LineIndex-1] and Lines[LineIndex].
@@ -363,8 +366,7 @@ private:
 
 class BreakableLineCommentSection : public BreakableComment {
 public:
-  BreakableLineCommentSection(const FormatToken &Token, unsigned IndentLevel,
-                              unsigned StartColumn,
+  BreakableLineCommentSection(const FormatToken &Token, unsigned StartColumn,
                               unsigned OriginalStartColumn, bool FirstInLine,
                               bool InPPDirective, encoding::Encoding Encoding,
                               const FormatStyle &Style);
@@ -375,7 +377,8 @@ public:
   void insertBreak(unsigned LineIndex, unsigned TailOffset, Split Split,
                    WhitespaceManager &Whitespaces) override;
   Split getSplitBefore(unsigned LineIndex, unsigned PreviousEndColumn,
-                       unsigned ColumnLimit) const override;
+                       unsigned ColumnLimit,
+                       llvm::Regex &CommentPragmasRegex) const override;
   unsigned getLineLengthAfterSplitBefore(unsigned LineIndex, unsigned TailOffset,
                                          unsigned PreviousEndColumn,
                                          unsigned ColumnLimit,
@@ -384,6 +387,8 @@ public:
                                unsigned ColumnLimit, Split SplitBefore,
                                WhitespaceManager &Whitespaces) override;
   void updateNextToken(LineState& State) const override;
+  bool mayReflow(unsigned LineIndex,
+                 llvm::Regex &CommentPragmasRegex) const override;
 
 private:
   unsigned getContentStartColumn(unsigned LineIndex,

@@ -717,6 +717,7 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   Opts.XRayInstructionThreshold =
       getLastArgIntValue(Args, OPT_fxray_instruction_threshold_, 200, Diags);
   Opts.InstrumentForProfiling = Args.hasArg(OPT_pg);
+  Opts.CallFEntry = Args.hasArg(OPT_mfentry);
   Opts.EmitOpenCLArgMetadata = Args.hasArg(OPT_cl_kernel_arg_info);
   Opts.CompressDebugSections = Args.hasArg(OPT_compress_debug_sections);
   Opts.RelaxELFRelocations = Args.hasArg(OPT_mrelax_relocations);
@@ -1955,6 +1956,7 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
       Args.hasArg(OPT_fmodules_decluse) || Opts.ModulesStrictDeclUse;
   Opts.ModulesLocalVisibility =
       Args.hasArg(OPT_fmodules_local_submodule_visibility) || Opts.ModulesTS;
+  Opts.ModularCodegen = Args.hasArg(OPT_fmodule_codegen);
   Opts.ModulesSearchAll = Opts.Modules &&
     !Args.hasArg(OPT_fno_modules_search_all) &&
     Args.hasArg(OPT_fmodules_search_all);

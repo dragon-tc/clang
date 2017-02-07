@@ -5483,6 +5483,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   if (getToolChain().SupportsProfiling())
     Args.AddLastArg(CmdArgs, options::OPT_pg);
 
+  if (getToolChain().SupportsProfiling())
+    Args.AddLastArg(CmdArgs, options::OPT_mfentry);
+
   // -flax-vector-conversions is default.
   if (!Args.hasFlag(options::OPT_flax_vector_conversions,
                     options::OPT_fno_lax_vector_conversions))
@@ -8693,6 +8696,10 @@ void darwin::Linker::ConstructJob(Compilation &C, const JobAction &JA,
 
     // Let the tool chain choose which runtime library to link.
     getMachOToolChain().AddLinkRuntimeLibArgs(Args, CmdArgs);
+
+    // No need to do anything for pthreads. Claim argument to avoid warning.
+    Args.ClaimAllArgs(options::OPT_pthread);
+    Args.ClaimAllArgs(options::OPT_pthreads);
   }
 
   if (!Args.hasArg(options::OPT_nostdlib, options::OPT_nostartfiles)) {
@@ -11004,6 +11011,11 @@ void visualstudio::Linker::ConstructJob(Compilation &C, const JobAction &JA,
     } else {
       for (const auto &Lib : {"asan", "asan_cxx"})
         CmdArgs.push_back(TC.getCompilerRTArgString(Args, Lib));
+      // Make sure the linker consider all object files from the static library.
+      // This is necessary because instrumented dlls need access to all the
+      // interface exported by the static lib in the main executable.
+      CmdArgs.push_back(Args.MakeArgString(std::string("-wholearchive:") +
+          TC.getCompilerRT(Args, "asan")));
     }
   }
 

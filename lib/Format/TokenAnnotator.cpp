@@ -1445,7 +1445,9 @@ public:
 
       // At the end of the line or when an operator with higher precedence is
       // found, insert fake parenthesis and return.
-      if (!Current || (Current->closesScope() && Current->MatchingParen) ||
+      if (!Current ||
+          (Current->closesScope() &&
+           (Current->MatchingParen || Current->is(TT_TemplateString))) ||
           (CurrentPrecedence != -1 && CurrentPrecedence < Precedence) ||
           (CurrentPrecedence == prec::Conditional &&
            Precedence == prec::Assignment && Current->is(tok::colon))) {
@@ -1454,7 +1456,9 @@ public:
 
       // Consume scopes: (), [], <> and {}
       if (Current->opensScope()) {
-        while (Current && !Current->closesScope()) {
+        // In fragment of a JavaScript template string can look like '}..${' and
+        // thus close a scope and open a new one at the same time.
+        while (Current && (!Current->closesScope() || Current->opensScope())) {
           next();
           parse();
         }
@@ -1759,8 +1763,6 @@ void TokenAnnotator::calculateFormattingInformation(AnnotatedLine &Line) {
 
   Line.First->TotalLength =
       Line.First->IsMultiline ? Style.ColumnLimit : Line.First->ColumnWidth;
-  if (!Line.First->Next)
-    return;
   FormatToken *Current = Line.First->Next;
   bool InFunctionDecl = Line.MightBeFunctionDecl;
   while (Current) {
@@ -1836,9 +1838,18 @@ void TokenAnnotator::calculateFormattingInformation(AnnotatedLine &Line) {
   }
 
   calculateUnbreakableTailLengths(Line);
+  unsigned IndentLevel = Line.Level;
   for (Current = Line.First; Current != nullptr; Current = Current->Next) {
     if (Current->Role)
       Current->Role->precomputeFormattingInfos(Current);
+    if (Current->MatchingParen &&
+        Current->MatchingParen->opensBlockOrBlockTypeList(Style)) {
+      assert(IndentLevel > 0);
+      --IndentLevel;
+    }
+    Current->IndentLevel = IndentLevel;
+    if (Current->opensBlockOrBlockTypeList(Style))
+      ++IndentLevel;
   }
 
   DEBUG({ printDebugInfo(Line); });
@@ -2381,6 +2392,12 @@ bool TokenAnnotator::mustBreakBefore(const AnnotatedLine &Line,
     if (Right.is(tok::plus) && Left.is(tok::string_literal) && Right.Next &&
         Right.Next->is(tok::string_literal))
       return true;
+  } else if (Style.Language == FormatStyle::LK_Cpp ||
+             Style.Language == FormatStyle::LK_ObjC ||
+             Style.Language == FormatStyle::LK_Proto) {
+    if (Left.isStringLiteral() &&
+        (Right.isStringLiteral() || Right.is(TT_ObjCStringLiteral)))
+      return true;
   }
 
   // If the last token before a '}' is a comma or a trailing comment, the
@@ -2403,9 +2420,6 @@ bool TokenAnnotator::mustBreakBefore(const AnnotatedLine &Line,
            Left.isNot(TT_CtorInitializerColon) &&
            (Right.NewlinesBefore > 0 && Right.HasUnescapedNewline);
   if (Left.isTrailingComment())
-    return true;
-  if (Left.isStringLiteral() &&
-      (Right.isStringLiteral() || Right.is(TT_ObjCStringLiteral)))
     return true;
   if (Right.Previous->IsUnterminatedLiteral)
     return true;
@@ -2621,7 +2635,8 @@ bool TokenAnnotator::canBreakBefore(const AnnotatedLine &Line,
                        tok::colon, tok::l_square, tok::at) ||
          (Left.is(tok::r_paren) &&
           Right.isOneOf(tok::identifier, tok::kw_const)) ||
-         (Left.is(tok::l_paren) && !Right.is(tok::r_paren));
+         (Left.is(tok::l_paren) && !Right.is(tok::r_paren)) ||
+         (Left.is(TT_TemplateOpener) && !Right.is(TT_TemplateCloser));
 }
 
 void TokenAnnotator::printDebugInfo(const AnnotatedLine &Line) {

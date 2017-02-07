@@ -5931,7 +5931,8 @@ public:
                       SourceLocation LAngleLoc,
                       ASTTemplateArgsPtr TemplateArgs,
                       SourceLocation RAngleLoc,
-                      bool IsCtorOrDtorName = false);
+                      bool IsCtorOrDtorName = false,
+                      bool IsClassName = false);
 
   /// \brief Parsed an elaborated-type-specifier that refers to a template-id,
   /// such as \c class T::template apply<U>.
@@ -6726,6 +6727,9 @@ public:
   /// \brief Substitute Replacement for auto in TypeWithAuto
   TypeSourceInfo* SubstAutoTypeSourceInfo(TypeSourceInfo *TypeWithAuto,
                                           QualType Replacement);
+  /// \brief Completely replace the \c auto in \p TypeWithAuto by
+  /// \p Replacement. This does not retain any \c auto type sugar.
+  QualType ReplaceAutoType(QualType TypeWithAuto, QualType Replacement);
 
   /// \brief Result type of DeduceAutoType.
   enum DeduceAutoResult {
@@ -7359,7 +7363,8 @@ public:
 
   TypeSourceInfo *SubstType(TypeSourceInfo *T,
                             const MultiLevelTemplateArgumentList &TemplateArgs,
-                            SourceLocation Loc, DeclarationName Entity);
+                            SourceLocation Loc, DeclarationName Entity,
+                            bool AllowDeducedTST = false);
 
   QualType SubstType(QualType T,
                      const MultiLevelTemplateArgumentList &TemplateArgs,

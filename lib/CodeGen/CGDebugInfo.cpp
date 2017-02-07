@@ -509,7 +509,8 @@ void CGDebugInfo::CreateCompileUnit() {
                                    Checksum),
       Producer, LO.Optimize, CGM.getCodeGenOpts().DwarfDebugFlags, RuntimeVers,
       CGM.getCodeGenOpts().SplitDwarfFile, EmissionKind, 0 /* DWOid */,
-      CGM.getCodeGenOpts().SplitDwarfInlining);
+      CGM.getCodeGenOpts().SplitDwarfInlining,
+      CGM.getCodeGenOpts().DebugInfoForProfiling);
 }
 
 llvm::DIType *CGDebugInfo::CreateType(const BuiltinType *BT) {
@@ -1714,7 +1715,27 @@ void CGDebugInfo::completeType(const RecordDecl *RD) {
     completeRequiredType(RD);
 }
 
+/// Return true if the class or any of its methods are marked dllimport.
+static bool isClassOrMethodDLLImport(const CXXRecordDecl *RD) {
+  if (RD->hasAttr<DLLImportAttr>())
+    return true;
+  for (const CXXMethodDecl *MD : RD->methods())
+    if (MD->hasAttr<DLLImportAttr>())
+      return true;
+  return false;
+}
+
 void CGDebugInfo::completeClassData(const RecordDecl *RD) {
+  if (auto *CXXRD = dyn_cast<CXXRecordDecl>(RD))
+    if (CXXRD->isDynamicClass() &&
+        CGM.getVTableLinkage(CXXRD) ==
+            llvm::GlobalValue::AvailableExternallyLinkage &&
+        !isClassOrMethodDLLImport(CXXRD))
+      return;
+  completeClass(RD);
+}
+
+void CGDebugInfo::completeClass(const RecordDecl *RD) {
   if (DebugKind <= codegenoptions::DebugLineTablesOnly)
     return;
   QualType Ty = CGM.getContext().getRecordType(RD);
@@ -1758,16 +1779,6 @@ static bool isDefinedInClangModule(const RecordDecl *RD) {
     }
   }
   return true;
-}
-
-/// Return true if the class or any of its methods are marked dllimport.
-static bool isClassOrMethodDLLImport(const CXXRecordDecl *RD) {
-  if (RD->hasAttr<DLLImportAttr>())
-    return true;
-  for (const CXXMethodDecl *MD : RD->methods())
-    if (MD->hasAttr<DLLImportAttr>())
-      return true;
-  return false;
 }
 
 static bool shouldOmitDefinition(codegenoptions::DebugInfoKind DebugKind,
