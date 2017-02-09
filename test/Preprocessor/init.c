@@ -8462,9 +8462,11 @@
 // PS4:#define __WINT_WIDTH__ 32
 // PS4:#define __amd64 1
 // PS4:#define __amd64__ 1
+// PS4:#define __unix 1
 // PS4:#define __unix__ 1
 // PS4:#define __x86_64 1
 // PS4:#define __x86_64__ 1
+// PS4:#define unix 1
 //
 // RUN: %clang_cc1 -E -dM -triple=x86_64-pc-mingw32 < /dev/null | FileCheck -match-full-lines -check-prefix X86-64-DECLSPEC %s
 // RUN: %clang_cc1 -E -dM -fms-extensions -triple=x86_64-unknown-mingw32 < /dev/null | FileCheck -match-full-lines -check-prefix X86-64-DECLSPEC %s
@@ -8859,6 +8861,7 @@
 // WEBASSEMBLY32-NOT:#define __wasm_simd128__
 // WEBASSEMBLY32-NOT:#define __wasm_simd256__
 // WEBASSEMBLY32-NOT:#define __wasm_simd512__
+// WEBASSEMBLY32-NOT:#define __unix
 // WEBASSEMBLY32-NOT:#define __unix__
 // WEBASSEMBLY32-NEXT:#define __wasm 1
 // WEBASSEMBLY32-NEXT:#define __wasm32 1
@@ -9174,6 +9177,7 @@
 // WEBASSEMBLY64-NOT:#define __wasm_simd128__
 // WEBASSEMBLY64-NOT:#define __wasm_simd256__
 // WEBASSEMBLY64-NOT:#define __wasm_simd512__
+// WEBASSEMBLY64-NOT:#define __unix
 // WEBASSEMBLY64-NOT:#define __unix__
 // WEBASSEMBLY64-NEXT:#define __wasm 1
 // WEBASSEMBLY64-NOT:#define __wasm32

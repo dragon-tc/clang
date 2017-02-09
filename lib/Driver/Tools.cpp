@@ -3365,8 +3365,10 @@ collectSanitizerRuntimes(const ToolChain &TC, const ArgList &Args,
     if (SanArgs.linkCXXRuntimes())
       StaticRuntimes.push_back("ubsan_standalone_cxx");
   }
-  if (SanArgs.needsSafeStackRt())
-    StaticRuntimes.push_back("safestack");
+  if (SanArgs.needsSafeStackRt()) {
+    NonWholeStaticRuntimes.push_back("safestack");
+    RequiredSymbols.push_back("__safestack_init");
+  }
   if (SanArgs.needsCfiRt())
     StaticRuntimes.push_back("cfi");
   if (SanArgs.needsCfiDiagRt()) {
@@ -3417,7 +3419,7 @@ static bool addSanitizerRuntimes(const ToolChain &TC, const ArgList &Args,
   if (SanArgs.hasCrossDsoCfi() && !AddExportDynamic)
     CmdArgs.push_back("-export-dynamic-symbol=__cfi_check");
 
-  return !StaticRuntimes.empty();
+  return !StaticRuntimes.empty() || !NonWholeStaticRuntimes.empty();
 }
 
 static bool addXRayRuntime(const ToolChain &TC, const ArgList &Args,
@@ -11009,13 +11011,14 @@ void visualstudio::Linker::ConstructJob(Compilation &C, const JobAction &JA,
     } else if (DLL) {
       CmdArgs.push_back(TC.getCompilerRTArgString(Args, "asan_dll_thunk"));
     } else {
-      for (const auto &Lib : {"asan", "asan_cxx"})
+      for (const auto &Lib : {"asan", "asan_cxx"}) {
         CmdArgs.push_back(TC.getCompilerRTArgString(Args, Lib));
-      // Make sure the linker consider all object files from the static library.
-      // This is necessary because instrumented dlls need access to all the
-      // interface exported by the static lib in the main executable.
-      CmdArgs.push_back(Args.MakeArgString(std::string("-wholearchive:") +
-          TC.getCompilerRT(Args, "asan")));
+        // Make sure the linker consider all object files from the static lib.
+        // This is necessary because instrumented dlls need access to all the
+        // interface exported by the static lib in the main executable.
+        CmdArgs.push_back(Args.MakeArgString(std::string("-wholearchive:") +
+            TC.getCompilerRT(Args, Lib)));
+      }
     }
   }
 

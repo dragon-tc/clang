@@ -1207,8 +1207,9 @@ def warn_cxx98_compat_unelaborated_friend_type : Warning<
 def err_qualified_friend_not_found : Error<
   "no function named %0 with type %1 was found in the specified scope">;
 def err_introducing_special_friend : Error<
-  "must use a qualified name when declaring a %select{constructor|"
-  "destructor|conversion operator}0 as a friend">;
+  "%plural{[0,2]:must use a qualified name when declaring|3:cannot declare}0"
+  " a %select{constructor|destructor|conversion operator|deduction guide}0 "
+  "as a friend">;
 def err_tagless_friend_type_template : Error<
   "friend type templates must use an elaborated type">;
 def err_no_matching_local_friend : Error<
@@ -1848,8 +1849,8 @@ def warn_cxx98_compat_temp_copy : Warning<
   InGroup<CXX98CompatBindToTemporaryCopy>, DefaultIgnore;
 def err_selected_explicit_constructor : Error<
   "chosen constructor is explicit in copy-initialization">;
-def note_constructor_declared_here : Note<
-  "constructor declared here">;
+def note_explicit_ctor_deduction_guide_here : Note<
+  "explicit %select{constructor|deduction guide}0 declared here">;
 
 // C++11 decltype
 def err_decltype_in_declarator : Error<
@@ -1943,6 +1944,8 @@ def err_auto_bitfield : Error<
   "cannot pass bit-field as __auto_type initializer in C">;
 
 // C++1y decltype(auto) type
+def err_decltype_auto_invalid : Error<
+  "'decltype(auto)' not allowed here">;
 def err_decltype_auto_cannot_be_combined : Error<
   "'decltype(auto)' cannot be combined with other type specifiers">;
 def err_decltype_auto_function_declarator_not_declaration : Error<
@@ -1958,8 +1961,36 @@ def err_deduced_class_template_compound_type : Error<
   "cannot %select{form pointer to|form reference to|form array of|"
   "form function returning|use parentheses when declaring variable with}0 "
   "deduced class template specialization type">;
-def err_deduced_class_template_not_supported : Error<
-  "deduction of template arguments for class templates is not yet supported">;
+def err_deduced_non_class_template_specialization_type : Error<
+  "%select{<error>|function template|variable template|alias template|"
+  "template template parameter|template}0 %1 requires template arguments; "
+  "argument deduction only allowed for class templates">;
+def err_deduced_class_template_ctor_ambiguous : Error<
+  "ambiguous deduction for template arguments of %0">;
+def err_deduced_class_template_ctor_no_viable : Error<
+  "no viable constructor or deduction guide for deduction of "
+  "template arguments of %0">;
+def err_deduced_class_template_incomplete : Error<
+  "template %0 has no definition and no %select{|viable }1deduction guides "
+  "for deduction of template arguments">;
+def err_deduced_class_template_deleted : Error<
+  "class template argument deduction for %0 selected a deleted constructor">;
+def err_deduced_class_template_explicit : Error<
+  "class template argument deduction for %0 selected an explicit "
+  "%select{constructor|deduction guide}1 for copy-list-initialization">;
+def err_deduction_guide_no_trailing_return_type : Error<
+  "deduction guide declaration without trailing return type">;
+def err_deduction_guide_with_complex_decl : Error<
+  "cannot specify any part of a return type in the "
+  "declaration of a deduction guide">;
+def err_deduction_guide_invalid_specifier : Error<
+  "deduction guide cannot be declared '%0'">;
+def err_deduction_guide_name_not_class_template : Error<
+  "cannot specify deduction guide for "
+  "%select{<error>|function template|variable template|alias template|"
+  "template template parameter|dependent template name}0 %1">;
+def err_deduction_guide_defines_function : Error<
+  "deduction guide cannot have a function definition">;
 
 // C++1y deduced return types
 def err_auto_fn_deduction_failure : Error<
@@ -5765,8 +5796,8 @@ def err_this_static_member_func : Error<
 def err_invalid_member_use_in_static_method : Error<
   "invalid use of member %0 in static member function">;
 def err_invalid_qualified_function_type : Error<
-  "%select{static |non-}0member function %select{of type %2 |}1"
-  "cannot have '%3' qualifier">;
+  "%select{non-member function|static member function|deduction guide}0 "
+  "%select{of type %2 |}1cannot have '%3' qualifier">;
 def err_compound_qualified_function_type : Error<
   "%select{block pointer|pointer|reference}0 to function type %select{%2 |}1"
   "cannot have '%3' qualifier">;
@@ -8944,5 +8975,10 @@ def warn_block_literal_qualifiers_on_omitted_return_type : Warning<
 def ext_warn_gnu_final : ExtWarn<
   "__final is a GNU extension, consider using C++11 final">,
   InGroup<GccCompat>;
+
+def warn_shadow_field :
+  Warning<"non-static data member '%0' of '%1' shadows member inherited from type '%2'">,
+  InGroup<ShadowField>, DefaultIgnore;
+def note_shadow_field : Note<"declared here">;
 
 } // end of sema component.
