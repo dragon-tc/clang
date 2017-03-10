@@ -48,6 +48,7 @@ namespace format {
   TYPE(FunctionTypeLParen) \
   TYPE(ImplicitStringLiteral) \
   TYPE(InheritanceColon) \
+  TYPE(InheritanceComma) \
   TYPE(InlineASMBrace) \
   TYPE(InlineASMColon) \
   TYPE(JavaAnnotation) \
@@ -455,6 +456,8 @@ struct FormatToken {
   /// \brief Returns \c true if this tokens starts a block-type list, i.e. a
   /// list that should be indented with a block indent.
   bool opensBlockOrBlockTypeList(const FormatStyle &Style) const {
+    if (is(TT_TemplateString) && opensScope())
+      return true;
     return is(TT_ArrayInitializerLSquare) ||
            (is(tok::l_brace) &&
             (BlockKind == BK_Block || is(TT_DictLiteral) ||
@@ -463,6 +466,8 @@ struct FormatToken {
 
   /// \brief Same as opensBlockOrBlockTypeList, but for the closing token.
   bool closesBlockOrBlockTypeList(const FormatStyle &Style) const {
+    if (is(TT_TemplateString) && closesScope())
+      return true;
     return MatchingParen && MatchingParen->opensBlockOrBlockTypeList(Style);
   }
 
@@ -630,6 +635,8 @@ struct AdditionalKeywords {
     kw_synchronized = &IdentTable.get("synchronized");
     kw_throws = &IdentTable.get("throws");
     kw___except = &IdentTable.get("__except");
+    kw___has_include = &IdentTable.get("__has_include");
+    kw___has_include_next = &IdentTable.get("__has_include_next");
 
     kw_mark = &IdentTable.get("mark");
 
@@ -656,6 +663,8 @@ struct AdditionalKeywords {
   IdentifierInfo *kw_NS_ENUM;
   IdentifierInfo *kw_NS_OPTIONS;
   IdentifierInfo *kw___except;
+  IdentifierInfo *kw___has_include;
+  IdentifierInfo *kw___has_include_next;
 
   // JavaScript keywords.
   IdentifierInfo *kw_as;

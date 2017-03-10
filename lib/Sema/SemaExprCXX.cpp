@@ -459,7 +459,7 @@ ExprResult Sema::BuildCXXTypeId(QualType TypeInfoType,
   if (E->getType()->isVariablyModifiedType())
     return ExprError(Diag(TypeidLoc, diag::err_variably_modified_typeid)
                      << E->getType());
-  else if (ActiveTemplateInstantiations.empty() &&
+  else if (!inTemplateInstantiation() &&
            E->HasSideEffects(Context, WasEvaluated)) {
     // The expression operand for typeid is in an unevaluated expression
     // context, so side effects could result in unintended consequences.
@@ -979,7 +979,7 @@ QualType Sema::getCurrentThisType() {
   }
 
   if (ThisTy.isNull() && isLambdaCallOperator(CurContext) &&
-      !ActiveTemplateInstantiations.empty()) {
+      inTemplateInstantiation()) {
 
     assert(isa<CXXRecordDecl>(DC) &&
            "Trying to get 'this' type from static method?");
@@ -1537,7 +1537,7 @@ Sema::ActOnCXXNew(SourceLocation StartLoc, bool UseGlobal,
   if (D.getNumTypeObjects() > 0 &&
       D.getTypeObject(0).Kind == DeclaratorChunk::Array) {
     DeclaratorChunk &Chunk = D.getTypeObject(0);
-    if (D.getDeclSpec().containsPlaceholderType())
+    if (D.getDeclSpec().hasAutoTypeSpec())
       return ExprError(Diag(Chunk.Loc, diag::err_new_array_of_auto)
         << D.getSourceRange());
     if (Chunk.Arr.hasStatic)
@@ -6817,8 +6817,7 @@ ExprResult Sema::BuildCXXNoexceptExpr(SourceLocation KeyLoc, Expr *Operand,
   // The operand may have been modified when checking the placeholder type.
   Operand = R.get();
 
-  if (ActiveTemplateInstantiations.empty() &&
-      Operand->HasSideEffects(Context, false)) {
+  if (!inTemplateInstantiation() && Operand->HasSideEffects(Context, false)) {
     // The expression operand for noexcept is in an unevaluated expression
     // context, so side effects could result in unintended consequences.
     Diag(Operand->getExprLoc(), diag::warn_side_effects_unevaluated_context);

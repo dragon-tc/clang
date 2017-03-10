@@ -545,6 +545,8 @@ protected:
     Builder.defineMacro("__ELF__");
     if (Opts.POSIXThreads)
       Builder.defineMacro("_REENTRANT");
+    if (this->HasFloat128)
+      Builder.defineMacro("__FLOAT128__");
   }
 public:
   OpenBSDTargetInfo(const llvm::Triple &Triple, const TargetOptions &Opts)
@@ -552,11 +554,11 @@ public:
     this->TLSSupported = false;
 
       switch (Triple.getArch()) {
-        default:
         case llvm::Triple::x86:
         case llvm::Triple::x86_64:
-        case llvm::Triple::arm:
-        case llvm::Triple::sparc:
+          this->HasFloat128 = true;
+          // FALLTHROUGH
+        default:
           this->MCountName = "__mcount";
           break;
         case llvm::Triple::mips64:
@@ -1231,6 +1233,11 @@ void PPCTargetInfo::getTargetDefines(const LangOptions &Opts,
   // FIXME: Should be controlled by command line option.
   if (LongDoubleWidth == 128)
     Builder.defineMacro("__LONG_DOUBLE_128__");
+
+  // Define this for elfv2 (64-bit only) or 64-bit darwin.
+  if (ABI == "elfv2" ||
+      (getTriple().getOS() == llvm::Triple::Darwin && PointerWidth == 64))
+    Builder.defineMacro("__STRUCT_PARM_ALIGN__", "16");
 
   if (Opts.AltiVec) {
     Builder.defineMacro("__VEC__", "10206");
@@ -2029,7 +2036,8 @@ class AMDGPUTargetInfo final : public TargetInfo {
     GK_CAYMAN,
     GK_GFX6,
     GK_GFX7,
-    GK_GFX8
+    GK_GFX8,
+    GK_GFX9
   } GPU;
 
   bool hasFP64:1;
@@ -2206,6 +2214,8 @@ public:
       .Case("gfx803",    GK_GFX8)
       .Case("gfx804",    GK_GFX8)
       .Case("gfx810",    GK_GFX8)
+      .Case("gfx900",    GK_GFX9)
+      .Case("gfx901",    GK_GFX9)
       .Default(GK_NONE);
   }
 
@@ -2246,6 +2256,32 @@ public:
 
   LangAS::ID getOpenCLImageAddrSpace() const override {
     return LangAS::opencl_constant;
+  }
+
+  /// \returns Target specific vtbl ptr address space.
+  unsigned getVtblPtrAddressSpace() const override {
+    // \todo: We currently have address spaces defined in AMDGPU Backend. It
+    // would be nice if we could use it here instead of using bare numbers (same
+    // applies to getDWARFAddressSpace).
+    return 2; // constant.
+  }
+
+  /// \returns If a target requires an address within a target specific address
+  /// space \p AddressSpace to be converted in order to be used, then return the
+  /// corresponding target specific DWARF address space.
+  ///
+  /// \returns Otherwise return None and no conversion will be emitted in the
+  /// DWARF.
+  Optional<unsigned> getDWARFAddressSpace(
+      unsigned AddressSpace) const override {
+    switch (AddressSpace) {
+    case 0: // LLVM Private.
+      return 1; // DWARF Private.
+    case 3: // LLVM Local.
+      return 2; // DWARF Local.
+    default:
+      return None;
+    }
   }
 
   CallingConvCheckResult checkCallingConvention(CallingConv CC) const override {
@@ -2345,9 +2381,13 @@ bool AMDGPUTargetInfo::initFeatureMap(
     case GK_GFX7:
       break;
 
+    case GK_GFX9:
+      Features["gfx9-insts"] = true;
+      LLVM_FALLTHROUGH;
     case GK_GFX8:
       Features["s-memrealtime"] = true;
       Features["16-bit-insts"] = true;
+      Features["dpp"] = true;
       break;
 
     case GK_NONE:
@@ -5063,6 +5103,8 @@ class ARMTargetInfo : public TargetInfo {
       return "7M";
     case llvm::ARM::AK_ARMV7EM:
       return "7EM";
+    case llvm::ARM::AK_ARMV7VE:
+      return "7VE";
     case llvm::ARM::AK_ARMV8A:
       return "8A";
     case llvm::ARM::AK_ARMV8_1A:
@@ -5151,6 +5193,8 @@ public:
       default:
         if (Triple.getOS() == llvm::Triple::NetBSD)
           setABI("apcs-gnu");
+        else if (Triple.getOS() == llvm::Triple::OpenBSD)
+          setABI("aapcs-linux");
         else
           setABI("aapcs");
         break;
@@ -5932,7 +5976,8 @@ class AArch64TargetInfo : public TargetInfo {
 public:
   AArch64TargetInfo(const llvm::Triple &Triple, const TargetOptions &Opts)
       : TargetInfo(Triple), ABI("aapcs") {
-    if (getTriple().getOS() == llvm::Triple::NetBSD) {
+    if (getTriple().getOS() == llvm::Triple::NetBSD ||
+        getTriple().getOS() == llvm::Triple::OpenBSD) {
       WCharType = SignedInt;
 
       // NetBSD apparently prefers consistency across ARM targets to consistency
@@ -5967,8 +6012,9 @@ public:
     // AArch64 targets default to using the ARM C++ ABI.
     TheCXXABI.set(TargetCXXABI::GenericAArch64);
 
-    if (Triple.getOS() == llvm::Triple::Linux ||
-        Triple.getOS() == llvm::Triple::UnknownOS)
+    if (Triple.getOS() == llvm::Triple::Linux)
+      this->MCountName = "\01_mcount";
+    else if (Triple.getOS() == llvm::Triple::UnknownOS)
       this->MCountName = Opts.EABIVersion == "gnu" ? "\01_mcount" : "mcount";
   }
 
@@ -7452,6 +7498,8 @@ class MipsTargetInfo : public TargetInfo {
   bool IsMicromips;
   bool IsNan2008;
   bool IsSingleFloat;
+  bool IsNoABICalls;
+  bool CanUseBSDABICalls;
   enum MipsFloatABI {
     HardFloat, SoftFloat
   } FloatABI;
@@ -7467,8 +7515,9 @@ protected:
 public:
   MipsTargetInfo(const llvm::Triple &Triple, const TargetOptions &)
       : TargetInfo(Triple), IsMips16(false), IsMicromips(false),
-        IsNan2008(false), IsSingleFloat(false), FloatABI(HardFloat),
-        DspRev(NoDSP), HasMSA(false), HasFP64(false) {
+        IsNan2008(false), IsSingleFloat(false), IsNoABICalls(false),
+        CanUseBSDABICalls(false), FloatABI(HardFloat), DspRev(NoDSP),
+        HasMSA(false), HasFP64(false) {
     TheCXXABI.set(TargetCXXABI::GenericMIPS);
 
     setABI((getTriple().getArch() == llvm::Triple::mips ||
@@ -7477,6 +7526,9 @@ public:
                : "n64");
 
     CPU = ABI == "o32" ? "mips32r2" : "mips64r2";
+
+    CanUseBSDABICalls = Triple.getOS() == llvm::Triple::FreeBSD ||
+                        Triple.getOS() == llvm::Triple::OpenBSD;
   }
 
   bool isNaN2008Default() const {
@@ -7553,7 +7605,11 @@ public:
 
   void setN64ABITypes() {
     setN32N64ABITypes();
-    Int64Type = SignedLong;
+    if (getTriple().getOS() == llvm::Triple::OpenBSD) {
+      Int64Type = SignedLongLong;
+    } else {
+      Int64Type = SignedLong;
+    }
     IntMaxType = Int64Type;
     LongWidth = LongAlign = 64;
     PointerWidth = PointerAlign = 64;
@@ -7656,6 +7712,12 @@ public:
       Builder.defineMacro("_MIPS_SIM", "_ABI64");
     } else
       llvm_unreachable("Invalid ABI.");
+
+    if (!IsNoABICalls) {
+      Builder.defineMacro("__mips_abicalls");
+      if (CanUseBSDABICalls)
+        Builder.defineMacro("__ABICALLS__");
+    }
 
     Builder.defineMacro("__REGISTER_PREFIX__", "");
 
@@ -7871,6 +7933,8 @@ public:
         IsNan2008 = true;
       else if (Feature == "-nan2008")
         IsNan2008 = false;
+      else if (Feature == "+noabicalls")
+        IsNoABICalls = true;
     }
 
     setDataLayout();
@@ -8462,244 +8526,244 @@ struct MCUInfo {
 // This list should be kept up-to-date with AVRDevices.td in LLVM.
 static ArrayRef<MCUInfo> AVRMcus = {
   { "at90s1200", "__AVR_AT90S1200__" },
-  { "attiny11", "__AVR_ATtiny11" },
-  { "attiny12", "__AVR_ATtiny12" },
-  { "attiny15", "__AVR_ATtiny15" },
-  { "attiny28", "__AVR_ATtiny28" },
-  { "at90s2313", "__AVR_AT90S2313" },
-  { "at90s2323", "__AVR_AT90S2323" },
-  { "at90s2333", "__AVR_AT90S2333" },
-  { "at90s2343", "__AVR_AT90S2343" },
-  { "attiny22", "__AVR_ATtiny22" },
-  { "attiny26", "__AVR_ATtiny26" },
-  { "at86rf401", "__AVR_AT86RF401" },
-  { "at90s4414", "__AVR_AT90S4414" },
-  { "at90s4433", "__AVR_AT90S4433" },
-  { "at90s4434", "__AVR_AT90S4434" },
-  { "at90s8515", "__AVR_AT90S8515" },
-  { "at90c8534", "__AVR_AT90c8534" },
-  { "at90s8535", "__AVR_AT90S8535" },
-  { "ata5272", "__AVR_ATA5272" },
-  { "attiny13", "__AVR_ATtiny13" },
-  { "attiny13a", "__AVR_ATtiny13A" },
-  { "attiny2313", "__AVR_ATtiny2313" },
-  { "attiny2313a", "__AVR_ATtiny2313A" },
-  { "attiny24", "__AVR_ATtiny24" },
-  { "attiny24a", "__AVR_ATtiny24A" },
-  { "attiny4313", "__AVR_ATtiny4313" },
-  { "attiny44", "__AVR_ATtiny44" },
-  { "attiny44a", "__AVR_ATtiny44A" },
-  { "attiny84", "__AVR_ATtiny84" },
-  { "attiny84a", "__AVR_ATtiny84A" },
-  { "attiny25", "__AVR_ATtiny25" },
-  { "attiny45", "__AVR_ATtiny45" },
-  { "attiny85", "__AVR_ATtiny85" },
-  { "attiny261", "__AVR_ATtiny261" },
-  { "attiny261a", "__AVR_ATtiny261A" },
-  { "attiny461", "__AVR_ATtiny461" },
-  { "attiny461a", "__AVR_ATtiny461A" },
-  { "attiny861", "__AVR_ATtiny861" },
-  { "attiny861a", "__AVR_ATtiny861A" },
-  { "attiny87", "__AVR_ATtiny87" },
-  { "attiny43u", "__AVR_ATtiny43U" },
-  { "attiny48", "__AVR_ATtiny48" },
-  { "attiny88", "__AVR_ATtiny88" },
-  { "attiny828", "__AVR_ATtiny828" },
-  { "at43usb355", "__AVR_AT43USB355" },
-  { "at76c711", "__AVR_AT76C711" },
-  { "atmega103", "__AVR_ATmega103" },
-  { "at43usb320", "__AVR_AT43USB320" },
-  { "attiny167", "__AVR_ATtiny167" },
-  { "at90usb82", "__AVR_AT90USB82" },
-  { "at90usb162", "__AVR_AT90USB162" },
-  { "ata5505", "__AVR_ATA5505" },
-  { "atmega8u2", "__AVR_ATmega8U2" },
-  { "atmega16u2", "__AVR_ATmega16U2" },
-  { "atmega32u2", "__AVR_ATmega32U2" },
-  { "attiny1634", "__AVR_ATtiny1634" },
-  { "atmega8", "__AVR_ATmega8" },
-  { "ata6289", "__AVR_ATA6289" },
-  { "atmega8a", "__AVR_ATmega8A" },
-  { "ata6285", "__AVR_ATA6285" },
-  { "ata6286", "__AVR_ATA6286" },
-  { "atmega48", "__AVR_ATmega48" },
-  { "atmega48a", "__AVR_ATmega48A" },
-  { "atmega48pa", "__AVR_ATmega48PA" },
-  { "atmega48p", "__AVR_ATmega48P" },
-  { "atmega88", "__AVR_ATmega88" },
-  { "atmega88a", "__AVR_ATmega88A" },
-  { "atmega88p", "__AVR_ATmega88P" },
-  { "atmega88pa", "__AVR_ATmega88PA" },
-  { "atmega8515", "__AVR_ATmega8515" },
-  { "atmega8535", "__AVR_ATmega8535" },
-  { "atmega8hva", "__AVR_ATmega8HVA" },
-  { "at90pwm1", "__AVR_AT90PWM1" },
-  { "at90pwm2", "__AVR_AT90PWM2" },
-  { "at90pwm2b", "__AVR_AT90PWM2B" },
-  { "at90pwm3", "__AVR_AT90PWM3" },
-  { "at90pwm3b", "__AVR_AT90PWM3B" },
-  { "at90pwm81", "__AVR_AT90PWM81" },
-  { "ata5790", "__AVR_ATA5790" },
-  { "ata5795", "__AVR_ATA5795" },
-  { "atmega16", "__AVR_ATmega16" },
-  { "atmega16a", "__AVR_ATmega16A" },
-  { "atmega161", "__AVR_ATmega161" },
-  { "atmega162", "__AVR_ATmega162" },
-  { "atmega163", "__AVR_ATmega163" },
-  { "atmega164a", "__AVR_ATmega164A" },
-  { "atmega164p", "__AVR_ATmega164P" },
-  { "atmega164pa", "__AVR_ATmega164PA" },
-  { "atmega165", "__AVR_ATmega165" },
-  { "atmega165a", "__AVR_ATmega165A" },
-  { "atmega165p", "__AVR_ATmega165P" },
-  { "atmega165pa", "__AVR_ATmega165PA" },
-  { "atmega168", "__AVR_ATmega168" },
-  { "atmega168a", "__AVR_ATmega168A" },
-  { "atmega168p", "__AVR_ATmega168P" },
-  { "atmega168pa", "__AVR_ATmega168PA" },
-  { "atmega169", "__AVR_ATmega169" },
-  { "atmega169a", "__AVR_ATmega169A" },
-  { "atmega169p", "__AVR_ATmega169P" },
-  { "atmega169pa", "__AVR_ATmega169PA" },
-  { "atmega32", "__AVR_ATmega32" },
-  { "atmega32a", "__AVR_ATmega32A" },
-  { "atmega323", "__AVR_ATmega323" },
-  { "atmega324a", "__AVR_ATmega324A" },
-  { "atmega324p", "__AVR_ATmega324P" },
-  { "atmega324pa", "__AVR_ATmega324PA" },
-  { "atmega325", "__AVR_ATmega325" },
-  { "atmega325a", "__AVR_ATmega325A" },
-  { "atmega325p", "__AVR_ATmega325P" },
-  { "atmega325pa", "__AVR_ATmega325PA" },
-  { "atmega3250", "__AVR_ATmega3250" },
-  { "atmega3250a", "__AVR_ATmega3250A" },
-  { "atmega3250p", "__AVR_ATmega3250P" },
-  { "atmega3250pa", "__AVR_ATmega3250PA" },
-  { "atmega328", "__AVR_ATmega328" },
-  { "atmega328p", "__AVR_ATmega328P" },
-  { "atmega329", "__AVR_ATmega329" },
-  { "atmega329a", "__AVR_ATmega329A" },
-  { "atmega329p", "__AVR_ATmega329P" },
-  { "atmega329pa", "__AVR_ATmega329PA" },
-  { "atmega3290", "__AVR_ATmega3290" },
-  { "atmega3290a", "__AVR_ATmega3290A" },
-  { "atmega3290p", "__AVR_ATmega3290P" },
-  { "atmega3290pa", "__AVR_ATmega3290PA" },
-  { "atmega406", "__AVR_ATmega406" },
-  { "atmega64", "__AVR_ATmega64" },
-  { "atmega64a", "__AVR_ATmega64A" },
-  { "atmega640", "__AVR_ATmega640" },
-  { "atmega644", "__AVR_ATmega644" },
-  { "atmega644a", "__AVR_ATmega644A" },
-  { "atmega644p", "__AVR_ATmega644P" },
-  { "atmega644pa", "__AVR_ATmega644PA" },
-  { "atmega645", "__AVR_ATmega645" },
-  { "atmega645a", "__AVR_ATmega645A" },
-  { "atmega645p", "__AVR_ATmega645P" },
-  { "atmega649", "__AVR_ATmega649" },
-  { "atmega649a", "__AVR_ATmega649A" },
-  { "atmega649p", "__AVR_ATmega649P" },
-  { "atmega6450", "__AVR_ATmega6450" },
-  { "atmega6450a", "__AVR_ATmega6450A" },
-  { "atmega6450p", "__AVR_ATmega6450P" },
-  { "atmega6490", "__AVR_ATmega6490" },
-  { "atmega6490a", "__AVR_ATmega6490A" },
-  { "atmega6490p", "__AVR_ATmega6490P" },
-  { "atmega64rfr2", "__AVR_ATmega64RFR2" },
-  { "atmega644rfr2", "__AVR_ATmega644RFR2" },
-  { "atmega16hva", "__AVR_ATmega16HVA" },
-  { "atmega16hva2", "__AVR_ATmega16HVA2" },
-  { "atmega16hvb", "__AVR_ATmega16HVB" },
-  { "atmega16hvbrevb", "__AVR_ATmega16HVBREVB" },
-  { "atmega32hvb", "__AVR_ATmega32HVB" },
-  { "atmega32hvbrevb", "__AVR_ATmega32HVBREVB" },
-  { "atmega64hve", "__AVR_ATmega64HVE" },
-  { "at90can32", "__AVR_AT90CAN32" },
-  { "at90can64", "__AVR_AT90CAN64" },
-  { "at90pwm161", "__AVR_AT90PWM161" },
-  { "at90pwm216", "__AVR_AT90PWM216" },
-  { "at90pwm316", "__AVR_AT90PWM316" },
-  { "atmega32c1", "__AVR_ATmega32C1" },
-  { "atmega64c1", "__AVR_ATmega64C1" },
-  { "atmega16m1", "__AVR_ATmega16M1" },
-  { "atmega32m1", "__AVR_ATmega32M1" },
-  { "atmega64m1", "__AVR_ATmega64M1" },
-  { "atmega16u4", "__AVR_ATmega16U4" },
-  { "atmega32u4", "__AVR_ATmega32U4" },
-  { "atmega32u6", "__AVR_ATmega32U6" },
-  { "at90usb646", "__AVR_AT90USB646" },
-  { "at90usb647", "__AVR_AT90USB647" },
-  { "at90scr100", "__AVR_AT90SCR100" },
-  { "at94k", "__AVR_AT94K" },
-  { "m3000", "__AVR_AT000" },
-  { "atmega128", "__AVR_ATmega128" },
-  { "atmega128a", "__AVR_ATmega128A" },
-  { "atmega1280", "__AVR_ATmega1280" },
-  { "atmega1281", "__AVR_ATmega1281" },
-  { "atmega1284", "__AVR_ATmega1284" },
-  { "atmega1284p", "__AVR_ATmega1284P" },
-  { "atmega128rfa1", "__AVR_ATmega128RFA1" },
-  { "atmega128rfr2", "__AVR_ATmega128RFR2" },
-  { "atmega1284rfr2", "__AVR_ATmega1284RFR2" },
-  { "at90can128", "__AVR_AT90CAN128" },
-  { "at90usb1286", "__AVR_AT90USB1286" },
-  { "at90usb1287", "__AVR_AT90USB1287" },
-  { "atmega2560", "__AVR_ATmega2560" },
-  { "atmega2561", "__AVR_ATmega2561" },
-  { "atmega256rfr2", "__AVR_ATmega256RFR2" },
-  { "atmega2564rfr2", "__AVR_ATmega2564RFR2" },
-  { "atxmega16a4", "__AVR_ATxmega16A4" },
-  { "atxmega16a4u", "__AVR_ATxmega16a4U" },
-  { "atxmega16c4", "__AVR_ATxmega16C4" },
-  { "atxmega16d4", "__AVR_ATxmega16D4" },
-  { "atxmega32a4", "__AVR_ATxmega32A4" },
-  { "atxmega32a4u", "__AVR_ATxmega32A4U" },
-  { "atxmega32c4", "__AVR_ATxmega32C4" },
-  { "atxmega32d4", "__AVR_ATxmega32D4" },
-  { "atxmega32e5", "__AVR_ATxmega32E5" },
-  { "atxmega16e5", "__AVR_ATxmega16E5" },
-  { "atxmega8e5", "__AVR_ATxmega8E5" },
-  { "atxmega32x1", "__AVR_ATxmega32X1" },
-  { "atxmega64a3", "__AVR_ATxmega64A3" },
-  { "atxmega64a3u", "__AVR_ATxmega64A3U" },
-  { "atxmega64a4u", "__AVR_ATxmega64A4U" },
-  { "atxmega64b1", "__AVR_ATxmega64B1" },
-  { "atxmega64b3", "__AVR_ATxmega64B3" },
-  { "atxmega64c3", "__AVR_ATxmega64C3" },
-  { "atxmega64d3", "__AVR_ATxmega64D3" },
-  { "atxmega64d4", "__AVR_ATxmega64D4" },
-  { "atxmega64a1", "__AVR_ATxmega64A1" },
-  { "atxmega64a1u", "__AVR_ATxmega64A1U" },
-  { "atxmega128a3", "__AVR_ATxmega128A3" },
-  { "atxmega128a3u", "__AVR_ATxmega128A3U" },
-  { "atxmega128b1", "__AVR_ATxmega128B1" },
-  { "atxmega128b3", "__AVR_ATxmega128B3" },
-  { "atxmega128c3", "__AVR_ATxmega128C3" },
-  { "atxmega128d3", "__AVR_ATxmega128D3" },
-  { "atxmega128d4", "__AVR_ATxmega128D4" },
-  { "atxmega192a3", "__AVR_ATxmega192A3" },
-  { "atxmega192a3u", "__AVR_ATxmega192A3U" },
-  { "atxmega192c3", "__AVR_ATxmega192C3" },
-  { "atxmega192d3", "__AVR_ATxmega192D3" },
-  { "atxmega256a3", "__AVR_ATxmega256A3" },
-  { "atxmega256a3u", "__AVR_ATxmega256A3U" },
-  { "atxmega256a3b", "__AVR_ATxmega256A3B" },
-  { "atxmega256a3bu", "__AVR_ATxmega256A3BU" },
-  { "atxmega256c3", "__AVR_ATxmega256C3" },
-  { "atxmega256d3", "__AVR_ATxmega256D3" },
-  { "atxmega384c3", "__AVR_ATxmega384C3" },
-  { "atxmega384d3", "__AVR_ATxmega384D3" },
-  { "atxmega128a1", "__AVR_ATxmega128A1" },
-  { "atxmega128a1u", "__AVR_ATxmega128A1U" },
-  { "atxmega128a4u", "__AVR_ATxmega128a4U" },
-  { "attiny4", "__AVR_ATtiny4" },
-  { "attiny5", "__AVR_ATtiny5" },
-  { "attiny9", "__AVR_ATtiny9" },
-  { "attiny10", "__AVR_ATtiny10" },
-  { "attiny20", "__AVR_ATtiny20" },
-  { "attiny40", "__AVR_ATtiny40" },
-  { "attiny102", "__AVR_ATtiny102" },
-  { "attiny104", "__AVR_ATtiny104" },
+  { "attiny11", "__AVR_ATtiny11__" },
+  { "attiny12", "__AVR_ATtiny12__" },
+  { "attiny15", "__AVR_ATtiny15__" },
+  { "attiny28", "__AVR_ATtiny28__" },
+  { "at90s2313", "__AVR_AT90S2313__" },
+  { "at90s2323", "__AVR_AT90S2323__" },
+  { "at90s2333", "__AVR_AT90S2333__" },
+  { "at90s2343", "__AVR_AT90S2343__" },
+  { "attiny22", "__AVR_ATtiny22__" },
+  { "attiny26", "__AVR_ATtiny26__" },
+  { "at86rf401", "__AVR_AT86RF401__" },
+  { "at90s4414", "__AVR_AT90S4414__" },
+  { "at90s4433", "__AVR_AT90S4433__" },
+  { "at90s4434", "__AVR_AT90S4434__" },
+  { "at90s8515", "__AVR_AT90S8515__" },
+  { "at90c8534", "__AVR_AT90c8534__" },
+  { "at90s8535", "__AVR_AT90S8535__" },
+  { "ata5272", "__AVR_ATA5272__" },
+  { "attiny13", "__AVR_ATtiny13__" },
+  { "attiny13a", "__AVR_ATtiny13A__" },
+  { "attiny2313", "__AVR_ATtiny2313__" },
+  { "attiny2313a", "__AVR_ATtiny2313A__" },
+  { "attiny24", "__AVR_ATtiny24__" },
+  { "attiny24a", "__AVR_ATtiny24A__" },
+  { "attiny4313", "__AVR_ATtiny4313__" },
+  { "attiny44", "__AVR_ATtiny44__" },
+  { "attiny44a", "__AVR_ATtiny44A__" },
+  { "attiny84", "__AVR_ATtiny84__" },
+  { "attiny84a", "__AVR_ATtiny84A__" },
+  { "attiny25", "__AVR_ATtiny25__" },
+  { "attiny45", "__AVR_ATtiny45__" },
+  { "attiny85", "__AVR_ATtiny85__" },
+  { "attiny261", "__AVR_ATtiny261__" },
+  { "attiny261a", "__AVR_ATtiny261A__" },
+  { "attiny461", "__AVR_ATtiny461__" },
+  { "attiny461a", "__AVR_ATtiny461A__" },
+  { "attiny861", "__AVR_ATtiny861__" },
+  { "attiny861a", "__AVR_ATtiny861A__" },
+  { "attiny87", "__AVR_ATtiny87__" },
+  { "attiny43u", "__AVR_ATtiny43U__" },
+  { "attiny48", "__AVR_ATtiny48__" },
+  { "attiny88", "__AVR_ATtiny88__" },
+  { "attiny828", "__AVR_ATtiny828__" },
+  { "at43usb355", "__AVR_AT43USB355__" },
+  { "at76c711", "__AVR_AT76C711__" },
+  { "atmega103", "__AVR_ATmega103__" },
+  { "at43usb320", "__AVR_AT43USB320__" },
+  { "attiny167", "__AVR_ATtiny167__" },
+  { "at90usb82", "__AVR_AT90USB82__" },
+  { "at90usb162", "__AVR_AT90USB162__" },
+  { "ata5505", "__AVR_ATA5505__" },
+  { "atmega8u2", "__AVR_ATmega8U2__" },
+  { "atmega16u2", "__AVR_ATmega16U2__" },
+  { "atmega32u2", "__AVR_ATmega32U2__" },
+  { "attiny1634", "__AVR_ATtiny1634__" },
+  { "atmega8", "__AVR_ATmega8__" },
+  { "ata6289", "__AVR_ATA6289__" },
+  { "atmega8a", "__AVR_ATmega8A__" },
+  { "ata6285", "__AVR_ATA6285__" },
+  { "ata6286", "__AVR_ATA6286__" },
+  { "atmega48", "__AVR_ATmega48__" },
+  { "atmega48a", "__AVR_ATmega48A__" },
+  { "atmega48pa", "__AVR_ATmega48PA__" },
+  { "atmega48p", "__AVR_ATmega48P__" },
+  { "atmega88", "__AVR_ATmega88__" },
+  { "atmega88a", "__AVR_ATmega88A__" },
+  { "atmega88p", "__AVR_ATmega88P__" },
+  { "atmega88pa", "__AVR_ATmega88PA__" },
+  { "atmega8515", "__AVR_ATmega8515__" },
+  { "atmega8535", "__AVR_ATmega8535__" },
+  { "atmega8hva", "__AVR_ATmega8HVA__" },
+  { "at90pwm1", "__AVR_AT90PWM1__" },
+  { "at90pwm2", "__AVR_AT90PWM2__" },
+  { "at90pwm2b", "__AVR_AT90PWM2B__" },
+  { "at90pwm3", "__AVR_AT90PWM3__" },
+  { "at90pwm3b", "__AVR_AT90PWM3B__" },
+  { "at90pwm81", "__AVR_AT90PWM81__" },
+  { "ata5790", "__AVR_ATA5790__" },
+  { "ata5795", "__AVR_ATA5795__" },
+  { "atmega16", "__AVR_ATmega16__" },
+  { "atmega16a", "__AVR_ATmega16A__" },
+  { "atmega161", "__AVR_ATmega161__" },
+  { "atmega162", "__AVR_ATmega162__" },
+  { "atmega163", "__AVR_ATmega163__" },
+  { "atmega164a", "__AVR_ATmega164A__" },
+  { "atmega164p", "__AVR_ATmega164P__" },
+  { "atmega164pa", "__AVR_ATmega164PA__" },
+  { "atmega165", "__AVR_ATmega165__" },
+  { "atmega165a", "__AVR_ATmega165A__" },
+  { "atmega165p", "__AVR_ATmega165P__" },
+  { "atmega165pa", "__AVR_ATmega165PA__" },
+  { "atmega168", "__AVR_ATmega168__" },
+  { "atmega168a", "__AVR_ATmega168A__" },
+  { "atmega168p", "__AVR_ATmega168P__" },
+  { "atmega168pa", "__AVR_ATmega168PA__" },
+  { "atmega169", "__AVR_ATmega169__" },
+  { "atmega169a", "__AVR_ATmega169A__" },
+  { "atmega169p", "__AVR_ATmega169P__" },
+  { "atmega169pa", "__AVR_ATmega169PA__" },
+  { "atmega32", "__AVR_ATmega32__" },
+  { "atmega32a", "__AVR_ATmega32A__" },
+  { "atmega323", "__AVR_ATmega323__" },
+  { "atmega324a", "__AVR_ATmega324A__" },
+  { "atmega324p", "__AVR_ATmega324P__" },
+  { "atmega324pa", "__AVR_ATmega324PA__" },
+  { "atmega325", "__AVR_ATmega325__" },
+  { "atmega325a", "__AVR_ATmega325A__" },
+  { "atmega325p", "__AVR_ATmega325P__" },
+  { "atmega325pa", "__AVR_ATmega325PA__" },
+  { "atmega3250", "__AVR_ATmega3250__" },
+  { "atmega3250a", "__AVR_ATmega3250A__" },
+  { "atmega3250p", "__AVR_ATmega3250P__" },
+  { "atmega3250pa", "__AVR_ATmega3250PA__" },
+  { "atmega328", "__AVR_ATmega328__" },
+  { "atmega328p", "__AVR_ATmega328P__" },
+  { "atmega329", "__AVR_ATmega329__" },
+  { "atmega329a", "__AVR_ATmega329A__" },
+  { "atmega329p", "__AVR_ATmega329P__" },
+  { "atmega329pa", "__AVR_ATmega329PA__" },
+  { "atmega3290", "__AVR_ATmega3290__" },
+  { "atmega3290a", "__AVR_ATmega3290A__" },
+  { "atmega3290p", "__AVR_ATmega3290P__" },
+  { "atmega3290pa", "__AVR_ATmega3290PA__" },
+  { "atmega406", "__AVR_ATmega406__" },
+  { "atmega64", "__AVR_ATmega64__" },
+  { "atmega64a", "__AVR_ATmega64A__" },
+  { "atmega640", "__AVR_ATmega640__" },
+  { "atmega644", "__AVR_ATmega644__" },
+  { "atmega644a", "__AVR_ATmega644A__" },
+  { "atmega644p", "__AVR_ATmega644P__" },
+  { "atmega644pa", "__AVR_ATmega644PA__" },
+  { "atmega645", "__AVR_ATmega645__" },
+  { "atmega645a", "__AVR_ATmega645A__" },
+  { "atmega645p", "__AVR_ATmega645P__" },
+  { "atmega649", "__AVR_ATmega649__" },
+  { "atmega649a", "__AVR_ATmega649A__" },
+  { "atmega649p", "__AVR_ATmega649P__" },
+  { "atmega6450", "__AVR_ATmega6450__" },
+  { "atmega6450a", "__AVR_ATmega6450A__" },
+  { "atmega6450p", "__AVR_ATmega6450P__" },
+  { "atmega6490", "__AVR_ATmega6490__" },
+  { "atmega6490a", "__AVR_ATmega6490A__" },
+  { "atmega6490p", "__AVR_ATmega6490P__" },
+  { "atmega64rfr2", "__AVR_ATmega64RFR2__" },
+  { "atmega644rfr2", "__AVR_ATmega644RFR2__" },
+  { "atmega16hva", "__AVR_ATmega16HVA__" },
+  { "atmega16hva2", "__AVR_ATmega16HVA2__" },
+  { "atmega16hvb", "__AVR_ATmega16HVB__" },
+  { "atmega16hvbrevb", "__AVR_ATmega16HVBREVB__" },
+  { "atmega32hvb", "__AVR_ATmega32HVB__" },
+  { "atmega32hvbrevb", "__AVR_ATmega32HVBREVB__" },
+  { "atmega64hve", "__AVR_ATmega64HVE__" },
+  { "at90can32", "__AVR_AT90CAN32__" },
+  { "at90can64", "__AVR_AT90CAN64__" },
+  { "at90pwm161", "__AVR_AT90PWM161__" },
+  { "at90pwm216", "__AVR_AT90PWM216__" },
+  { "at90pwm316", "__AVR_AT90PWM316__" },
+  { "atmega32c1", "__AVR_ATmega32C1__" },
+  { "atmega64c1", "__AVR_ATmega64C1__" },
+  { "atmega16m1", "__AVR_ATmega16M1__" },
+  { "atmega32m1", "__AVR_ATmega32M1__" },
+  { "atmega64m1", "__AVR_ATmega64M1__" },
+  { "atmega16u4", "__AVR_ATmega16U4__" },
+  { "atmega32u4", "__AVR_ATmega32U4__" },
+  { "atmega32u6", "__AVR_ATmega32U6__" },
+  { "at90usb646", "__AVR_AT90USB646__" },
+  { "at90usb647", "__AVR_AT90USB647__" },
+  { "at90scr100", "__AVR_AT90SCR100__" },
+  { "at94k", "__AVR_AT94K__" },
+  { "m3000", "__AVR_AT000__" },
+  { "atmega128", "__AVR_ATmega128__" },
+  { "atmega128a", "__AVR_ATmega128A__" },
+  { "atmega1280", "__AVR_ATmega1280__" },
+  { "atmega1281", "__AVR_ATmega1281__" },
+  { "atmega1284", "__AVR_ATmega1284__" },
+  { "atmega1284p", "__AVR_ATmega1284P__" },
+  { "atmega128rfa1", "__AVR_ATmega128RFA1__" },
+  { "atmega128rfr2", "__AVR_ATmega128RFR2__" },
+  { "atmega1284rfr2", "__AVR_ATmega1284RFR2__" },
+  { "at90can128", "__AVR_AT90CAN128__" },
+  { "at90usb1286", "__AVR_AT90USB1286__" },
+  { "at90usb1287", "__AVR_AT90USB1287__" },
+  { "atmega2560", "__AVR_ATmega2560__" },
+  { "atmega2561", "__AVR_ATmega2561__" },
+  { "atmega256rfr2", "__AVR_ATmega256RFR2__" },
+  { "atmega2564rfr2", "__AVR_ATmega2564RFR2__" },
+  { "atxmega16a4", "__AVR_ATxmega16A4__" },
+  { "atxmega16a4u", "__AVR_ATxmega16a4U__" },
+  { "atxmega16c4", "__AVR_ATxmega16C4__" },
+  { "atxmega16d4", "__AVR_ATxmega16D4__" },
+  { "atxmega32a4", "__AVR_ATxmega32A4__" },
+  { "atxmega32a4u", "__AVR_ATxmega32A4U__" },
+  { "atxmega32c4", "__AVR_ATxmega32C4__" },
+  { "atxmega32d4", "__AVR_ATxmega32D4__" },
+  { "atxmega32e5", "__AVR_ATxmega32E5__" },
+  { "atxmega16e5", "__AVR_ATxmega16E5__" },
+  { "atxmega8e5", "__AVR_ATxmega8E5__" },
+  { "atxmega32x1", "__AVR_ATxmega32X1__" },
+  { "atxmega64a3", "__AVR_ATxmega64A3__" },
+  { "atxmega64a3u", "__AVR_ATxmega64A3U__" },
+  { "atxmega64a4u", "__AVR_ATxmega64A4U__" },
+  { "atxmega64b1", "__AVR_ATxmega64B1__" },
+  { "atxmega64b3", "__AVR_ATxmega64B3__" },
+  { "atxmega64c3", "__AVR_ATxmega64C3__" },
+  { "atxmega64d3", "__AVR_ATxmega64D3__" },
+  { "atxmega64d4", "__AVR_ATxmega64D4__" },
+  { "atxmega64a1", "__AVR_ATxmega64A1__" },
+  { "atxmega64a1u", "__AVR_ATxmega64A1U__" },
+  { "atxmega128a3", "__AVR_ATxmega128A3__" },
+  { "atxmega128a3u", "__AVR_ATxmega128A3U__" },
+  { "atxmega128b1", "__AVR_ATxmega128B1__" },
+  { "atxmega128b3", "__AVR_ATxmega128B3__" },
+  { "atxmega128c3", "__AVR_ATxmega128C3__" },
+  { "atxmega128d3", "__AVR_ATxmega128D3__" },
+  { "atxmega128d4", "__AVR_ATxmega128D4__" },
+  { "atxmega192a3", "__AVR_ATxmega192A3__" },
+  { "atxmega192a3u", "__AVR_ATxmega192A3U__" },
+  { "atxmega192c3", "__AVR_ATxmega192C3__" },
+  { "atxmega192d3", "__AVR_ATxmega192D3__" },
+  { "atxmega256a3", "__AVR_ATxmega256A3__" },
+  { "atxmega256a3u", "__AVR_ATxmega256A3U__" },
+  { "atxmega256a3b", "__AVR_ATxmega256A3B__" },
+  { "atxmega256a3bu", "__AVR_ATxmega256A3BU__" },
+  { "atxmega256c3", "__AVR_ATxmega256C3__" },
+  { "atxmega256d3", "__AVR_ATxmega256D3__" },
+  { "atxmega384c3", "__AVR_ATxmega384C3__" },
+  { "atxmega384d3", "__AVR_ATxmega384D3__" },
+  { "atxmega128a1", "__AVR_ATxmega128A1__" },
+  { "atxmega128a1u", "__AVR_ATxmega128A1U__" },
+  { "atxmega128a4u", "__AVR_ATxmega128a4U__" },
+  { "attiny4", "__AVR_ATtiny4__" },
+  { "attiny5", "__AVR_ATtiny5__" },
+  { "attiny9", "__AVR_ATtiny9__" },
+  { "attiny10", "__AVR_ATtiny10__" },
+  { "attiny20", "__AVR_ATtiny20__" },
+  { "attiny40", "__AVR_ATtiny40__" },
+  { "attiny102", "__AVR_ATtiny102__" },
+  { "attiny104", "__AVR_ATtiny104__" },
 };
 
 // AVR Target
@@ -8936,6 +9000,8 @@ static TargetInfo *AllocateTarget(const llvm::Triple &Triple,
       return new LinuxTargetInfo<AArch64leTargetInfo>(Triple, Opts);
     case llvm::Triple::NetBSD:
       return new NetBSDTargetInfo<AArch64leTargetInfo>(Triple, Opts);
+    case llvm::Triple::OpenBSD:
+      return new OpenBSDTargetInfo<AArch64leTargetInfo>(Triple, Opts);
     default:
       return new AArch64leTargetInfo(Triple, Opts);
     }

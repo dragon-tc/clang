@@ -957,7 +957,7 @@ def fxray_instruction_threshold_ :
 def flat__namespace : Flag<["-"], "flat_namespace">;
 def flax_vector_conversions : Flag<["-"], "flax-vector-conversions">, Group<f_Group>;
 def flimited_precision_EQ : Joined<["-"], "flimited-precision=">, Group<f_Group>;
-def flto_EQ : Joined<["-"], "flto=">, Flags<[CC1Option]>, Group<f_Group>,
+def flto_EQ : Joined<["-"], "flto=">, Flags<[CoreOption, CC1Option]>, Group<f_Group>,
   HelpText<"Set LTO mode to either 'full' or 'thin'">;
 def flto : Flag<["-"], "flto">, Flags<[CoreOption, CC1Option]>, Group<f_Group>,
   HelpText<"Enable LTO in 'full' mode">;
@@ -1322,6 +1322,10 @@ def fno_standalone_debug : Flag<["-"], "fno-standalone-debug">, Group<f_Group>, 
   HelpText<"Limit debug information produced to reduce size of debug binary">;
 def flimit_debug_info : Flag<["-"], "flimit-debug-info">, Flags<[CoreOption]>, Alias<fno_standalone_debug>;
 def fno_limit_debug_info : Flag<["-"], "fno-limit-debug-info">, Flags<[CoreOption]>, Alias<fstandalone_debug>;
+def fdebug_macro : Flag<["-"], "fdebug-macro">, Group<f_Group>, Flags<[CoreOption]>,
+  HelpText<"Emit macro debug information">;
+def fno_debug_macro : Flag<["-"], "fno-debug-macro">, Group<f_Group>, Flags<[CoreOption]>,
+  HelpText<"Do not emit macro debug information">;
 def fstrict_aliasing : Flag<["-"], "fstrict-aliasing">, Group<f_Group>,
   Flags<[DriverOption, CoreOption]>;
 def fstrict_enums : Flag<["-"], "fstrict-enums">, Group<f_Group>, Flags<[CC1Option]>,
@@ -1444,8 +1448,8 @@ def fno_unique_section_names : Flag <["-"], "fno-unique-section-names">,
 
 def fstrict_return : Flag<["-"], "fstrict-return">, Group<f_Group>,
   Flags<[CC1Option]>,
-  HelpText<"Always treat control flow paths that fall off the end of a non-void"
-           "function as unreachable">;
+  HelpText<"Always treat control flow paths that fall off the end of a "
+           "non-void function as unreachable">;
 def fno_strict_return : Flag<["-"], "fno-strict-return">, Group<f_Group>,
   Flags<[CC1Option]>;
 

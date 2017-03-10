@@ -75,8 +75,10 @@ add_clang_library(clangCodeGen
   CodeGenPGO.cpp
   CodeGenTBAA.cpp
   CodeGenTypes.cpp
+  ConstantInitBuilder.cpp
   CoverageMappingGen.cpp
   ItaniumCXXABI.cpp
+  MacroPPCallbacks.cpp
   MicrosoftCXXABI.cpp
   ModuleBuilder.cpp
   ObjectFilePCHContainerOperations.cpp
