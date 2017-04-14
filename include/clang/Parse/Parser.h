@@ -183,6 +183,7 @@ class Parser : public CodeCompletionHandler {
   std::unique_ptr<PragmaHandler> LoopHintHandler;
   std::unique_ptr<PragmaHandler> UnrollHintHandler;
   std::unique_ptr<PragmaHandler> NoUnrollHintHandler;
+  std::unique_ptr<PragmaHandler> FPHandler;
 
   std::unique_ptr<CommentHandler> CommentSemaHandler;
 
@@ -549,6 +550,10 @@ private:
   void HandlePragmaFPContract();
 
   /// \brief Handle the annotation token produced for
+  /// #pragma clang fp ...
+  void HandlePragmaFP();
+
+  /// \brief Handle the annotation token produced for
   /// #pragma OPENCL EXTENSION...
   void HandlePragmaOpenCLExtension();
 
@@ -794,6 +799,14 @@ private:
 
   /// \brief Consume any extra semi-colons until the end of the line.
   void ConsumeExtraSemi(ExtraSemiKind Kind, unsigned TST = TST_unspecified);
+
+  /// Return false if the next token is an identifier. An 'expected identifier'
+  /// error is emitted otherwise.
+  ///
+  /// The parser tries to recover from the error by checking if the next token
+  /// is a C++ keyword when parsing Objective-C++. Return false if the recovery
+  /// was successful.
+  bool expectIdentifier();
 
 public:
   //===--------------------------------------------------------------------===//
@@ -1449,10 +1462,12 @@ private:
   ExprResult ParseCastExpression(bool isUnaryExpression,
                                  bool isAddressOfOperand,
                                  bool &NotCastExpr,
-                                 TypeCastState isTypeCast);
+                                 TypeCastState isTypeCast,
+                                 bool isVectorLiteral = false);
   ExprResult ParseCastExpression(bool isUnaryExpression,
                                  bool isAddressOfOperand = false,
-                                 TypeCastState isTypeCast = NotTypeCast);
+                                 TypeCastState isTypeCast = NotTypeCast,
+                                 bool isVectorLiteral = false);
 
   /// Returns true if the next token cannot start an expression.
   bool isNotExpressionStart();
@@ -1534,7 +1549,8 @@ private:
                                       bool EnteringContext,
                                       bool *MayBePseudoDestructor = nullptr,
                                       bool IsTypename = false,
-                                      IdentifierInfo **LastII = nullptr);
+                                      IdentifierInfo **LastII = nullptr,
+                                      bool OnlyNamespace = false);
 
   //===--------------------------------------------------------------------===//
   // C++0x 5.1.2: Lambda expressions
@@ -1686,7 +1702,7 @@ private:
 
   StmtResult ParseStatement(SourceLocation *TrailingElseLoc = nullptr,
                             bool AllowOpenMPStandalone = false);
-  enum AllowedContsructsKind {
+  enum AllowedConstructsKind {
     /// \brief Allow any declarations, statements, OpenMP directives.
     ACK_Any,
     /// \brief Allow only statements and non-standalone OpenMP directives.
@@ -1695,11 +1711,11 @@ private:
     ACK_StatementsOpenMPAnyExecutable
   };
   StmtResult
-  ParseStatementOrDeclaration(StmtVector &Stmts, AllowedContsructsKind Allowed,
+  ParseStatementOrDeclaration(StmtVector &Stmts, AllowedConstructsKind Allowed,
                               SourceLocation *TrailingElseLoc = nullptr);
   StmtResult ParseStatementOrDeclarationAfterAttributes(
                                          StmtVector &Stmts,
-                                         AllowedContsructsKind Allowed,
+                                         AllowedConstructsKind Allowed,
                                          SourceLocation *TrailingElseLoc,
                                          ParsedAttributesWithRange &Attrs);
   StmtResult ParseExprStatement();
@@ -1728,7 +1744,7 @@ private:
   StmtResult ParseAsmStatement(bool &msAsm);
   StmtResult ParseMicrosoftAsmStatement(SourceLocation AsmLoc);
   StmtResult ParsePragmaLoopHint(StmtVector &Stmts,
-                                 AllowedContsructsKind Allowed,
+                                 AllowedConstructsKind Allowed,
                                  SourceLocation *TrailingElseLoc,
                                  ParsedAttributesWithRange &Attrs);
 
@@ -2587,7 +2603,7 @@ private:
   /// executable directives are allowed.
   ///
   StmtResult
-  ParseOpenMPDeclarativeOrExecutableDirective(AllowedContsructsKind Allowed);
+  ParseOpenMPDeclarativeOrExecutableDirective(AllowedConstructsKind Allowed);
   /// \brief Parses clause of kind \a CKind for directive of a kind \a Kind.
   ///
   /// \param DKind Kind of current directive.

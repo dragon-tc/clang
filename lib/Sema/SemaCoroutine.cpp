@@ -11,13 +11,15 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "clang/Sema/SemaInternal.h"
+#include "CoroutineStmtBuilder.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/StmtCXX.h"
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Sema/Initialization.h"
 #include "clang/Sema/Overload.h"
+#include "clang/Sema/SemaInternal.h"
+
 using namespace clang;
 using namespace sema;
 
@@ -312,8 +314,9 @@ static ExprResult buildCoroutineHandle(Sema &S, QualType PromiseType,
 }
 
 struct ReadySuspendResumeResult {
-  bool IsInvalid;
   Expr *Results[3];
+  OpaqueValueExpr *OpaqueValue;
+  bool IsInvalid;
 };
 
 static ExprResult buildMemberCall(Sema &S, Expr *Base, SourceLocation Loc,
@@ -336,8 +339,11 @@ static ExprResult buildMemberCall(Sema &S, Expr *Base, SourceLocation Loc,
 /// expression.
 static ReadySuspendResumeResult buildCoawaitCalls(Sema &S, VarDecl *CoroPromise,
                                                   SourceLocation Loc, Expr *E) {
+  OpaqueValueExpr *Operand = new (S.Context)
+      OpaqueValueExpr(Loc, E->getType(), VK_LValue, E->getObjectKind(), E);
+
   // Assume invalid until we see otherwise.
-  ReadySuspendResumeResult Calls = {true, {}};
+  ReadySuspendResumeResult Calls = {{}, Operand, /*IsInvalid=*/true};
 
   ExprResult CoroHandleRes = buildCoroutineHandle(S, CoroPromise->getType(), Loc);
   if (CoroHandleRes.isInvalid())
@@ -347,9 +353,6 @@ static ReadySuspendResumeResult buildCoawaitCalls(Sema &S, VarDecl *CoroPromise,
   const StringRef Funcs[] = {"await_ready", "await_suspend", "await_resume"};
   MultiExprArg Args[] = {None, CoroHandle, None};
   for (size_t I = 0, N = llvm::array_lengthof(Funcs); I != N; ++I) {
-    Expr *Operand = new (S.Context) OpaqueValueExpr(
-      Loc, E->getType(), VK_LValue, E->getObjectKind(), E);
-
     ExprResult Result = buildMemberCall(S, Operand, Loc, Funcs[I], Args[I]);
     if (Result.isInvalid())
       return Calls;
@@ -399,7 +402,8 @@ VarDecl *Sema::buildCoroutinePromise(SourceLocation Loc) {
 
 /// Check that this is a context in which a coroutine suspension can appear.
 static FunctionScopeInfo *checkCoroutineContext(Sema &S, SourceLocation Loc,
-                                                StringRef Keyword) {
+                                                StringRef Keyword,
+                                                bool IsImplicit = false) {
   if (!isValidCoroutineContext(S, Loc, Keyword))
     return nullptr;
 
@@ -407,6 +411,9 @@ static FunctionScopeInfo *checkCoroutineContext(Sema &S, SourceLocation Loc,
 
   auto *ScopeInfo = S.getCurFunction();
   assert(ScopeInfo && "missing function scope for function");
+
+  if (ScopeInfo->FirstCoroutineStmtLoc.isInvalid() && !IsImplicit)
+    ScopeInfo->setFirstCoroutineStmt(Loc, Keyword);
 
   if (ScopeInfo->CoroutinePromise)
     return ScopeInfo;
@@ -487,7 +494,7 @@ ExprResult Sema::ActOnCoawaitExpr(Scope *S, SourceLocation Loc, Expr *E) {
 }
 
 ExprResult Sema::BuildUnresolvedCoawaitExpr(SourceLocation Loc, Expr *E,
-                                           UnresolvedLookupExpr *Lookup) {
+                                            UnresolvedLookupExpr *Lookup) {
   auto *FSI = checkCoroutineContext(*this, Loc, "co_await");
   if (!FSI)
     return ExprError();
@@ -503,7 +510,6 @@ ExprResult Sema::BuildUnresolvedCoawaitExpr(SourceLocation Loc, Expr *E,
   if (Promise->getType()->isDependentType()) {
     Expr *Res =
         new (Context) DependentCoawaitExpr(Loc, Context.DependentTy, E, Lookup);
-    FSI->CoroutineStmts.push_back(Res);
     return Res;
   }
 
@@ -527,7 +533,7 @@ ExprResult Sema::BuildUnresolvedCoawaitExpr(SourceLocation Loc, Expr *E,
 
 ExprResult Sema::BuildResolvedCoawaitExpr(SourceLocation Loc, Expr *E,
                                   bool IsImplicit) {
-  auto *Coroutine = checkCoroutineContext(*this, Loc, "co_await");
+  auto *Coroutine = checkCoroutineContext(*this, Loc, "co_await", IsImplicit);
   if (!Coroutine)
     return ExprError();
 
@@ -540,8 +546,6 @@ ExprResult Sema::BuildResolvedCoawaitExpr(SourceLocation Loc, Expr *E,
   if (E->getType()->isDependentType()) {
     Expr *Res = new (Context)
         CoawaitExpr(Loc, Context.DependentTy, E, IsImplicit);
-    if (!IsImplicit)
-      Coroutine->CoroutineStmts.push_back(Res);
     return Res;
   }
 
@@ -556,10 +560,10 @@ ExprResult Sema::BuildResolvedCoawaitExpr(SourceLocation Loc, Expr *E,
   if (RSS.IsInvalid)
     return ExprError();
 
-  Expr *Res = new (Context) CoawaitExpr(Loc, E, RSS.Results[0], RSS.Results[1],
-                                        RSS.Results[2], IsImplicit);
-  if (!IsImplicit)
-    Coroutine->CoroutineStmts.push_back(Res);
+  Expr *Res =
+      new (Context) CoawaitExpr(Loc, E, RSS.Results[0], RSS.Results[1],
+                                RSS.Results[2], RSS.OpaqueValue, IsImplicit);
+
   return Res;
 }
 
@@ -595,7 +599,6 @@ ExprResult Sema::BuildCoyieldExpr(SourceLocation Loc, Expr *E) {
 
   if (E->getType()->isDependentType()) {
     Expr *Res = new (Context) CoyieldExpr(Loc, Context.DependentTy, E);
-    Coroutine->CoroutineStmts.push_back(Res);
     return Res;
   }
 
@@ -611,8 +614,8 @@ ExprResult Sema::BuildCoyieldExpr(SourceLocation Loc, Expr *E) {
     return ExprError();
 
   Expr *Res = new (Context) CoyieldExpr(Loc, E, RSS.Results[0], RSS.Results[1],
-                                        RSS.Results[2]);
-  Coroutine->CoroutineStmts.push_back(Res);
+                                        RSS.Results[2], RSS.OpaqueValue);
+
   return Res;
 }
 
@@ -626,7 +629,7 @@ StmtResult Sema::ActOnCoreturnStmt(Scope *S, SourceLocation Loc, Expr *E) {
 
 StmtResult Sema::BuildCoreturnStmt(SourceLocation Loc, Expr *E,
                                    bool IsImplicit) {
-  auto *FSI = checkCoroutineContext(*this, Loc, "co_return");
+  auto *FSI = checkCoroutineContext(*this, Loc, "co_return", IsImplicit);
   if (!FSI)
     return StmtError();
 
@@ -654,36 +657,6 @@ StmtResult Sema::BuildCoreturnStmt(SourceLocation Loc, Expr *E,
   Expr *PCE = ActOnFinishFullExpr(PC.get()).get();
 
   Stmt *Res = new (Context) CoreturnStmt(Loc, E, PCE, IsImplicit);
-  if (!IsImplicit)
-    FSI->CoroutineStmts.push_back(Res);
-  return Res;
-}
-
-static ExprResult buildStdCurrentExceptionCall(Sema &S, SourceLocation Loc) {
-  NamespaceDecl *Std = S.getStdNamespace();
-  if (!Std) {
-    S.Diag(Loc, diag::err_implied_std_current_exception_not_found);
-    return ExprError();
-  }
-  LookupResult Result(S, &S.PP.getIdentifierTable().get("current_exception"),
-                      Loc, Sema::LookupOrdinaryName);
-  if (!S.LookupQualifiedName(Result, Std)) {
-    S.Diag(Loc, diag::err_implied_std_current_exception_not_found);
-    return ExprError();
-  }
-
-  // FIXME The STL is free to provide more than one overload.
-  FunctionDecl *FD = Result.getAsSingle<FunctionDecl>();
-  if (!FD) {
-    S.Diag(Loc, diag::err_malformed_std_current_exception);
-    return ExprError();
-  }
-  ExprResult Res = S.BuildDeclRefExpr(FD, FD->getType(), VK_LValue, Loc);
-  Res = S.ActOnCallExpr(/*Scope*/ nullptr, Res.get(), Loc, None, Loc);
-  if (Res.isInvalid()) {
-    S.Diag(Loc, diag::err_malformed_std_current_exception);
-    return ExprError();
-  }
   return Res;
 }
 
@@ -712,46 +685,6 @@ static FunctionDecl *findDeleteForPromise(Sema &S, SourceLocation Loc,
   return OperatorDelete;
 }
 
-namespace {
-class SubStmtBuilder : public CoroutineBodyStmt::CtorArgs {
-  Sema &S;
-  FunctionDecl &FD;
-  FunctionScopeInfo &Fn;
-  bool IsValid;
-  SourceLocation Loc;
-  QualType RetType;
-  SmallVector<Stmt *, 4> ParamMovesVector;
-  const bool IsPromiseDependentType;
-  CXXRecordDecl *PromiseRecordDecl = nullptr;
-
-public:
-  SubStmtBuilder(Sema &S, FunctionDecl &FD, FunctionScopeInfo &Fn, Stmt *Body)
-      : S(S), FD(FD), Fn(Fn), Loc(FD.getLocation()),
-        IsPromiseDependentType(
-            !Fn.CoroutinePromise ||
-            Fn.CoroutinePromise->getType()->isDependentType()) {
-    this->Body = Body;
-    if (!IsPromiseDependentType) {
-      PromiseRecordDecl = Fn.CoroutinePromise->getType()->getAsCXXRecordDecl();
-      assert(PromiseRecordDecl && "Type should have already been checked");
-    }
-    this->IsValid = makePromiseStmt() && makeInitialAndFinalSuspend() &&
-                    makeOnException() && makeOnFallthrough() &&
-                    makeNewAndDeleteExpr() && makeReturnObject() &&
-                    makeParamMoves();
-  }
-
-  bool isInvalid() const { return !this->IsValid; }
-
-  bool makePromiseStmt();
-  bool makeInitialAndFinalSuspend();
-  bool makeNewAndDeleteExpr();
-  bool makeOnFallthrough();
-  bool makeOnException();
-  bool makeReturnObject();
-  bool makeParamMoves();
-};
-}
 
 void Sema::CheckCompletedCoroutineBody(FunctionDecl *FD, Stmt *&Body) {
   FunctionScopeInfo *Fn = getCurFunction();
@@ -772,25 +705,53 @@ void Sema::CheckCompletedCoroutineBody(FunctionDecl *FD, Stmt *&Body) {
   // Coroutines [stmt.return]p1:
   //   A return statement shall not appear in a coroutine.
   if (Fn->FirstReturnLoc.isValid()) {
+    assert(Fn->FirstCoroutineStmtLoc.isValid() &&
+                   "first coroutine location not set");
     Diag(Fn->FirstReturnLoc, diag::err_return_in_coroutine);
-    // FIXME: Every Coroutine statement may be invalid and therefore not added
-    // to CoroutineStmts. Find another way to provide location information.
-    if (!Fn->CoroutineStmts.empty()) {
-      auto *First = Fn->CoroutineStmts[0];
-      Diag(First->getLocStart(), diag::note_declared_coroutine_here)
-          << (isa<CoawaitExpr>(First) ? "co_await" :
-              isa<CoyieldExpr>(First) ? "co_yield" : "co_return");
-    }
+    Diag(Fn->FirstCoroutineStmtLoc, diag::note_declared_coroutine_here)
+            << Fn->getFirstCoroutineStmtKeyword();
   }
-  SubStmtBuilder Builder(*this, *FD, *Fn, Body);
-  if (Builder.isInvalid())
+  CoroutineStmtBuilder Builder(*this, *FD, *Fn, Body);
+  if (Builder.isInvalid() || !Builder.buildStatements())
     return FD->setInvalidDecl();
 
   // Build body for the coroutine wrapper statement.
   Body = CoroutineBodyStmt::Create(Context, Builder);
 }
 
-bool SubStmtBuilder::makePromiseStmt() {
+CoroutineStmtBuilder::CoroutineStmtBuilder(Sema &S, FunctionDecl &FD,
+                                           sema::FunctionScopeInfo &Fn,
+                                           Stmt *Body)
+    : S(S), FD(FD), Fn(Fn), Loc(FD.getLocation()),
+      IsPromiseDependentType(
+          !Fn.CoroutinePromise ||
+          Fn.CoroutinePromise->getType()->isDependentType()) {
+  this->Body = Body;
+  if (!IsPromiseDependentType) {
+    PromiseRecordDecl = Fn.CoroutinePromise->getType()->getAsCXXRecordDecl();
+    assert(PromiseRecordDecl && "Type should have already been checked");
+  }
+  this->IsValid = makePromiseStmt() && makeInitialAndFinalSuspend();
+}
+
+bool CoroutineStmtBuilder::buildStatements() {
+  assert(this->IsValid && "coroutine already invalid");
+  this->IsValid = makeReturnObject() && makeParamMoves();
+  if (this->IsValid && !IsPromiseDependentType)
+    buildDependentStatements();
+  return this->IsValid;
+}
+
+bool CoroutineStmtBuilder::buildDependentStatements() {
+  assert(this->IsValid && "coroutine already invalid");
+  assert(!this->IsPromiseDependentType &&
+         "coroutine cannot have a dependent promise type");
+  this->IsValid = makeOnException() && makeOnFallthrough() &&
+                  makeReturnOnAllocFailure() && makeNewAndDeleteExpr();
+  return this->IsValid;
+}
+
+bool CoroutineStmtBuilder::makePromiseStmt() {
   // Form a declaration statement for the promise declaration, so that AST
   // visitors can more easily find it.
   StmtResult PromiseStmt =
@@ -802,7 +763,7 @@ bool SubStmtBuilder::makePromiseStmt() {
   return true;
 }
 
-bool SubStmtBuilder::makeInitialAndFinalSuspend() {
+bool CoroutineStmtBuilder::makeInitialAndFinalSuspend() {
   if (Fn.hasInvalidCoroutineSuspends())
     return false;
   this->InitialSuspend = cast<Expr>(Fn.CoroutineSuspends.first);
@@ -810,16 +771,84 @@ bool SubStmtBuilder::makeInitialAndFinalSuspend() {
   return true;
 }
 
-bool SubStmtBuilder::makeNewAndDeleteExpr() {
-  // Form and check allocation and deallocation calls.
-  QualType PromiseType = Fn.CoroutinePromise->getType();
-  if (PromiseType->isDependentType())
+static bool diagReturnOnAllocFailure(Sema &S, Expr *E,
+                                     CXXRecordDecl *PromiseRecordDecl,
+                                     FunctionScopeInfo &Fn) {
+  auto Loc = E->getExprLoc();
+  if (auto *DeclRef = dyn_cast_or_null<DeclRefExpr>(E)) {
+    auto *Decl = DeclRef->getDecl();
+    if (CXXMethodDecl *Method = dyn_cast_or_null<CXXMethodDecl>(Decl)) {
+      if (Method->isStatic())
+        return true;
+      else
+        Loc = Decl->getLocation();
+    }
+  }
+
+  S.Diag(
+      Loc,
+      diag::err_coroutine_promise_get_return_object_on_allocation_failure)
+      << PromiseRecordDecl;
+  S.Diag(Fn.FirstCoroutineStmtLoc, diag::note_declared_coroutine_here)
+      << Fn.getFirstCoroutineStmtKeyword();
+  return false;
+}
+
+bool CoroutineStmtBuilder::makeReturnOnAllocFailure() {
+  assert(!IsPromiseDependentType &&
+         "cannot make statement while the promise type is dependent");
+
+  // [dcl.fct.def.coroutine]/8
+  // The unqualified-id get_return_object_on_allocation_failure is looked up in
+  // the scope of class P by class member access lookup (3.4.5). ...
+  // If an allocation function returns nullptr, ... the coroutine return value
+  // is obtained by a call to ... get_return_object_on_allocation_failure().
+
+  DeclarationName DN =
+      S.PP.getIdentifierInfo("get_return_object_on_allocation_failure");
+  LookupResult Found(S, DN, Loc, Sema::LookupMemberName);
+  if (!S.LookupQualifiedName(Found, PromiseRecordDecl))
     return true;
+
+  CXXScopeSpec SS;
+  ExprResult DeclNameExpr =
+      S.BuildDeclarationNameExpr(SS, Found, /*NeedsADL=*/false);
+  if (DeclNameExpr.isInvalid())
+    return false;
+
+  if (!diagReturnOnAllocFailure(S, DeclNameExpr.get(), PromiseRecordDecl, Fn))
+    return false;
+
+  ExprResult ReturnObjectOnAllocationFailure =
+      S.ActOnCallExpr(nullptr, DeclNameExpr.get(), Loc, {}, Loc);
+  if (ReturnObjectOnAllocationFailure.isInvalid())
+    return false;
+
+  // FIXME: ActOnReturnStmt expects a scope that is inside of the function, due
+  //   to CheckJumpOutOfSEHFinally(*this, ReturnLoc, *CurScope->getFnParent());
+  //   S.getCurScope()->getFnParent() == nullptr at ActOnFinishFunctionBody when
+  //   CoroutineBodyStmt is built. Figure it out and fix it.
+  //   Use BuildReturnStmt here to unbreak sanitized tests. (Gor:3/27/2017)
+  StmtResult ReturnStmt =
+      S.BuildReturnStmt(Loc, ReturnObjectOnAllocationFailure.get());
+  if (ReturnStmt.isInvalid())
+    return false;
+
+  this->ReturnStmtOnAllocFailure = ReturnStmt.get();
+  return true;
+}
+
+bool CoroutineStmtBuilder::makeNewAndDeleteExpr() {
+  // Form and check allocation and deallocation calls.
+  assert(!IsPromiseDependentType &&
+         "cannot make statement while the promise type is dependent");
+  QualType PromiseType = Fn.CoroutinePromise->getType();
 
   if (S.RequireCompleteType(Loc, PromiseType, diag::err_incomplete_type))
     return false;
 
-  // FIXME: Add support for get_return_object_on_allocation failure.
+  // FIXME: Add nothrow_t placement arg for global alloc
+  //        if ReturnStmtOnAllocFailure != nullptr.
   // FIXME: Add support for stateful allocators.
 
   FunctionDecl *OperatorNew = nullptr;
@@ -886,9 +915,9 @@ bool SubStmtBuilder::makeNewAndDeleteExpr() {
   return true;
 }
 
-bool SubStmtBuilder::makeOnFallthrough() {
-  if (!PromiseRecordDecl)
-    return true;
+bool CoroutineStmtBuilder::makeOnFallthrough() {
+  assert(!IsPromiseDependentType &&
+         "cannot make statement while the promise type is dependent");
 
   // [dcl.fct.def.coroutine]/4
   // The unqualified-ids 'return_void' and 'return_value' are looked up in
@@ -917,41 +946,38 @@ bool SubStmtBuilder::makeOnFallthrough() {
   return true;
 }
 
-bool SubStmtBuilder::makeOnException() {
-  // Try to form 'p.set_exception(std::current_exception());' to handle
-  // uncaught exceptions.
-  // TODO: Post WG21 Issaquah 2016 renamed set_exception to unhandled_exception
-  // TODO: and dropped exception_ptr parameter. Make it so.
+bool CoroutineStmtBuilder::makeOnException() {
+  // Try to form 'p.unhandled_exception();'
+  assert(!IsPromiseDependentType &&
+         "cannot make statement while the promise type is dependent");
 
-  if (!PromiseRecordDecl)
-    return true;
+  const bool RequireUnhandledException = S.getLangOpts().CXXExceptions;
+
+  if (!lookupMember(S, "unhandled_exception", PromiseRecordDecl, Loc)) {
+    auto DiagID =
+        RequireUnhandledException
+            ? diag::err_coroutine_promise_unhandled_exception_required
+            : diag::
+                  warn_coroutine_promise_unhandled_exception_required_with_exceptions;
+    S.Diag(Loc, DiagID) << PromiseRecordDecl;
+    return !RequireUnhandledException;
+  }
 
   // If exceptions are disabled, don't try to build OnException.
   if (!S.getLangOpts().CXXExceptions)
     return true;
 
-  ExprResult SetException;
+  ExprResult UnhandledException = buildPromiseCall(S, Fn.CoroutinePromise, Loc,
+                                                   "unhandled_exception", None);
+  UnhandledException = S.ActOnFinishFullExpr(UnhandledException.get(), Loc);
+  if (UnhandledException.isInvalid())
+    return false;
 
-  // [dcl.fct.def.coroutine]/3
-  // The unqualified-id set_exception is found in the scope of P by class
-  // member access lookup (3.4.5).
-  if (lookupMember(S, "set_exception", PromiseRecordDecl, Loc)) {
-    // Form the call 'p.set_exception(std::current_exception())'
-    SetException = buildStdCurrentExceptionCall(S, Loc);
-    if (SetException.isInvalid())
-      return false;
-    Expr *E = SetException.get();
-    SetException = buildPromiseCall(S, Fn.CoroutinePromise, Loc, "set_exception", E);
-    SetException = S.ActOnFinishFullExpr(SetException.get(), Loc);
-    if (SetException.isInvalid())
-      return false;
-  }
-
-  this->OnException = SetException.get();
+  this->OnException = UnhandledException.get();
   return true;
 }
 
-bool SubStmtBuilder::makeReturnObject() {
+bool CoroutineStmtBuilder::makeReturnObject() {
 
   // Build implicit 'p.get_return_object()' expression and form initialization
   // of return type from it.
@@ -976,7 +1002,7 @@ bool SubStmtBuilder::makeReturnObject() {
   return true;
 }
 
-bool SubStmtBuilder::makeParamMoves() {
+bool CoroutineStmtBuilder::makeParamMoves() {
   // FIXME: Perform move-initialization of parameters into frame-local copies.
   return true;
 }
