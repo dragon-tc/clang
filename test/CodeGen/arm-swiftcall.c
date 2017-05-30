@@ -57,6 +57,7 @@ SWIFTCALL void context_error_2(short s, CONTEXT int *self, ERROR float **error) 
 /********************************** LOWERING *********************************/
 /*****************************************************************************/
 
+typedef float float3 __attribute__((ext_vector_type(3)));
 typedef float float4 __attribute__((ext_vector_type(4)));
 typedef float float8 __attribute__((ext_vector_type(8)));
 typedef double double2 __attribute__((ext_vector_type(2)));
@@ -342,7 +343,7 @@ typedef union {
 } union_hom_fp_partial;
 TEST(union_hom_fp_partial)
 // CHECK-LABEL: define void @test_union_hom_fp_partial()
-// CHECK:   [[TMP:%.*]] = alloca [[REC:%.*]], align 16
+// CHECK:   [[TMP:%.*]] = alloca [[REC:%.*]], align 8
 // CHECK:   [[CALL:%.*]] = call [[SWIFTCC]] [[UAGG:{ float, float, float, float }]] @return_union_hom_fp_partial()
 // CHECK:   [[CAST_TMP:%.*]] = bitcast [[REC]]* [[TMP]] to [[AGG:{ float, float, float, float }]]*
 // CHECK:   [[T0:%.*]] = getelementptr inbounds [[AGG]], [[AGG]]* [[CAST_TMP]], i32 0, i32 0
@@ -375,7 +376,7 @@ typedef union {
 } union_het_fpv_partial;
 TEST(union_het_fpv_partial)
 // CHECK-LABEL: define void @test_union_het_fpv_partial()
-// CHECK:   [[TMP:%.*]] = alloca [[REC:%.*]], align 16
+// CHECK:   [[TMP:%.*]] = alloca [[REC:%.*]], align 8
 // CHECK:   [[CALL:%.*]] = call [[SWIFTCC]] [[UAGG:{ i32, i32, float, float }]] @return_union_het_fpv_partial()
 // CHECK:   [[CAST_TMP:%.*]] = bitcast [[REC]]* [[TMP]] to [[AGG:{ i32, i32, float, float }]]*
 // CHECK:   [[T0:%.*]] = getelementptr inbounds [[AGG]], [[AGG]]* [[CAST_TMP]], i32 0, i32 0
@@ -412,7 +413,7 @@ TEST(int4)
 
 TEST(int8)
 // CHECK-LABEL: define {{.*}} @return_int8()
-// CHECK:   [[RET:%.*]] = alloca [[REC:<8 x i32>]], align 32
+// CHECK:   [[RET:%.*]] = alloca [[REC:<8 x i32>]], align 8
 // CHECK:   [[VAR:%.*]] = alloca [[REC]], align
 // CHECK:   store
 // CHECK:   load
@@ -456,7 +457,7 @@ TEST(int8)
 
 TEST(int5)
 // CHECK-LABEL: define {{.*}} @return_int5()
-// CHECK:   [[RET:%.*]] = alloca [[REC:<5 x i32>]], align 32
+// CHECK:   [[RET:%.*]] = alloca [[REC:<5 x i32>]], align 8
 // CHECK:   [[VAR:%.*]] = alloca [[REC]], align
 // CHECK:   store
 // CHECK:   load
@@ -1013,3 +1014,10 @@ typedef struct {
 TEST(struct_vf81)
 // CHECK-LABEL: define swiftcc { <4 x float>, <4 x float> } @return_struct_vf81()
 // CHECK-LABEL: define swiftcc void @take_struct_vf81(<4 x float>, <4 x float>)
+
+typedef struct {
+  float3 f3;
+} struct_v1f3;
+TEST(struct_v1f3)
+// CHECK-LABEL: define swiftcc { <2 x float>, float } @return_struct_v1f3()
+// CHECK-LABEL: define swiftcc void @take_struct_v1f3(<2 x float>, float)

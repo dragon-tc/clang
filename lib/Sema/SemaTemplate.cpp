@@ -515,11 +515,11 @@ void Sema::diagnoseExprIntendedAsTemplateName(Scope *S, ExprResult TemplateName,
         diagnoseTypo(Corrected,
                      PDiag(diag::err_non_template_in_member_template_id_suggest)
                          << Name << LookupCtx << DroppedSpecifier
-                         << SS.getRange());
+                         << SS.getRange(), false);
       } else {
         diagnoseTypo(Corrected,
                      PDiag(diag::err_non_template_in_template_id_suggest)
-                         << Name);
+                         << Name, false);
       }
       if (Found)
         Diag(Found->getLocation(),
@@ -1330,8 +1330,8 @@ Sema::CheckClassTemplate(Scope *S, unsigned TagSpec, TagUseKind TUK,
           auto *Tmpl = cast<CXXRecordDecl>(Hidden)->getDescribedClassTemplate();
           assert(Tmpl && "original definition of a class template is not a "
                          "class template?");
-          makeMergedDefinitionVisible(Hidden, KWLoc);
-          makeMergedDefinitionVisible(Tmpl, KWLoc);
+          makeMergedDefinitionVisible(Hidden);
+          makeMergedDefinitionVisible(Tmpl);
           return Def;
         }
 
@@ -7431,7 +7431,7 @@ Sema::ActOnClassTemplateSpecialization(Scope *S, unsigned TagSpec,
     NamedDecl *Hidden = nullptr;
     if (Def && SkipBody && !hasVisibleDefinition(Def, &Hidden)) {
       SkipBody->ShouldSkip = true;
-      makeMergedDefinitionVisible(Hidden, KWLoc);
+      makeMergedDefinitionVisible(Hidden);
       // From here on out, treat this as just a redeclaration.
       TUK = TUK_Declaration;
     } else if (Def) {
@@ -7901,6 +7901,7 @@ bool Sema::CheckFunctionTemplateSpecialization(
   TemplateSpecializationKind TSK = SpecInfo->getTemplateSpecializationKind();
   if (TSK == TSK_Undeclared || TSK == TSK_ImplicitInstantiation) {
     Specialization->setLocation(FD->getLocation());
+    Specialization->setLexicalDeclContext(FD->getLexicalDeclContext());
     // C++11 [dcl.constexpr]p1: An explicit specialization of a constexpr
     // function can differ from the template declaration with respect to
     // the constexpr specifier.
@@ -7961,6 +7962,7 @@ bool Sema::CheckFunctionTemplateSpecialization(
       // FIXME: We need an update record for this AST mutation.
       Specialization->setDeletedAsWritten(false);
     }
+    // FIXME: We need an update record for this AST mutation.
     SpecInfo->setTemplateSpecializationKind(TSK_ExplicitSpecialization);
     MarkUnusedFileScopedDecl(Specialization);
   }
@@ -9745,7 +9747,7 @@ private:
       IsHiddenExplicitSpecialization =
           Spec->getMemberSpecializationInfo()
               ? !S.hasVisibleMemberSpecialization(Spec, &Modules)
-              : !S.hasVisibleDeclaration(Spec);
+              : !S.hasVisibleExplicitSpecialization(Spec, &Modules);
     } else {
       checkInstantiated(Spec);
     }
