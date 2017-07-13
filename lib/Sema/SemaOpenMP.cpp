@@ -412,6 +412,30 @@ public:
     return false;
   }
 
+  /// Do the check specified in \a Check to all component lists at a given level
+  /// and return true if any issue is found.
+  bool checkMappableExprComponentListsForDeclAtLevel(
+      ValueDecl *VD, unsigned Level,
+      const llvm::function_ref<
+          bool(OMPClauseMappableExprCommon::MappableExprComponentListRef,
+               OpenMPClauseKind)> &Check) {
+    if (isStackEmpty())
+      return false;
+
+    auto StartI = Stack.back().first.begin();
+    auto EndI = Stack.back().first.end();
+    if (std::distance(StartI, EndI) <= (int)Level)
+      return false;
+    std::advance(StartI, Level);
+
+    auto MI = StartI->MappedExprComponents.find(VD);
+    if (MI != StartI->MappedExprComponents.end())
+      for (auto &L : MI->second.Components)
+        if (Check(L, MI->second.Kind))
+          return true;
+    return false;
+  }
+
   /// Create a new mappable expression component list associated with a given
   /// declaration and initialize it with the provided list of components.
   void addMappableExpressionComponents(
@@ -994,9 +1018,8 @@ bool Sema::IsOpenMPCapturedByRef(ValueDecl *D, unsigned Level) {
     bool IsVariableUsedInMapClause = false;
     bool IsVariableAssociatedWithSection = false;
 
-    DSAStack->checkMappableExprComponentListsForDecl(
-        D, /*CurrentRegionOnly=*/true,
-        [&](OMPClauseMappableExprCommon::MappableExprComponentListRef
+    DSAStack->checkMappableExprComponentListsForDeclAtLevel(
+        D, Level, [&](OMPClauseMappableExprCommon::MappableExprComponentListRef
                 MapExprComponents,
             OpenMPClauseKind WhereFoundClauseKind) {
           // Only the map clause information influences how a variable is
@@ -5929,16 +5952,17 @@ StmtResult Sema::ActOnOpenMPTargetParallelForDirective(
                                                B, DSAStack->isCancelRegion());
 }
 
-/// \brief Check for existence of a map clause in the list of clauses.
-static bool HasMapClause(ArrayRef<OMPClause *> Clauses) {
-  for (ArrayRef<OMPClause *>::iterator I = Clauses.begin(), E = Clauses.end();
-       I != E; ++I) {
-    if (*I != nullptr && (*I)->getClauseKind() == OMPC_map) {
-      return true;
-    }
-  }
+/// Check for existence of a map clause in the list of clauses.
+static bool hasClauses(ArrayRef<OMPClause *> Clauses,
+                       const OpenMPClauseKind K) {
+  return llvm::any_of(
+      Clauses, [K](const OMPClause *C) { return C->getClauseKind() == K; });
+}
 
-  return false;
+template <typename... Params>
+static bool hasClauses(ArrayRef<OMPClause *> Clauses, const OpenMPClauseKind K,
+                       const Params... ClauseTypes) {
+  return hasClauses(Clauses, K) || hasClauses(Clauses, ClauseTypes...);
 }
 
 StmtResult Sema::ActOnOpenMPTargetDataDirective(ArrayRef<OMPClause *> Clauses,
@@ -5952,8 +5976,9 @@ StmtResult Sema::ActOnOpenMPTargetDataDirective(ArrayRef<OMPClause *> Clauses,
 
   // OpenMP [2.10.1, Restrictions, p. 97]
   // At least one map clause must appear on the directive.
-  if (!HasMapClause(Clauses)) {
-    Diag(StartLoc, diag::err_omp_no_map_for_directive)
+  if (!hasClauses(Clauses, OMPC_map, OMPC_use_device_ptr)) {
+    Diag(StartLoc, diag::err_omp_no_clause_for_directive)
+        << "'map' or 'use_device_ptr'"
         << getOpenMPDirectiveName(OMPD_target_data);
     return StmtError();
   }
@@ -5970,9 +5995,9 @@ Sema::ActOnOpenMPTargetEnterDataDirective(ArrayRef<OMPClause *> Clauses,
                                           SourceLocation EndLoc) {
   // OpenMP [2.10.2, Restrictions, p. 99]
   // At least one map clause must appear on the directive.
-  if (!HasMapClause(Clauses)) {
-    Diag(StartLoc, diag::err_omp_no_map_for_directive)
-        << getOpenMPDirectiveName(OMPD_target_enter_data);
+  if (!hasClauses(Clauses, OMPC_map)) {
+    Diag(StartLoc, diag::err_omp_no_clause_for_directive)
+        << "'map'" << getOpenMPDirectiveName(OMPD_target_enter_data);
     return StmtError();
   }
 
@@ -5986,9 +6011,9 @@ Sema::ActOnOpenMPTargetExitDataDirective(ArrayRef<OMPClause *> Clauses,
                                          SourceLocation EndLoc) {
   // OpenMP [2.10.3, Restrictions, p. 102]
   // At least one map clause must appear on the directive.
-  if (!HasMapClause(Clauses)) {
-    Diag(StartLoc, diag::err_omp_no_map_for_directive)
-        << getOpenMPDirectiveName(OMPD_target_exit_data);
+  if (!hasClauses(Clauses, OMPC_map)) {
+    Diag(StartLoc, diag::err_omp_no_clause_for_directive)
+        << "'map'" << getOpenMPDirectiveName(OMPD_target_exit_data);
     return StmtError();
   }
 
@@ -5998,12 +6023,7 @@ Sema::ActOnOpenMPTargetExitDataDirective(ArrayRef<OMPClause *> Clauses,
 StmtResult Sema::ActOnOpenMPTargetUpdateDirective(ArrayRef<OMPClause *> Clauses,
                                                   SourceLocation StartLoc,
                                                   SourceLocation EndLoc) {
-  bool seenMotionClause = false;
-  for (auto *C : Clauses) {
-    if (C->getClauseKind() == OMPC_to || C->getClauseKind() == OMPC_from)
-      seenMotionClause = true;
-  }
-  if (!seenMotionClause) {
+  if (!hasClauses(Clauses, OMPC_to, OMPC_from)) {
     Diag(StartLoc, diag::err_omp_at_least_one_motion_clause_required);
     return StmtError();
   }
@@ -6086,6 +6106,33 @@ static bool checkGrainsizeNumTasksClauses(Sema &S,
   return ErrorFound;
 }
 
+static bool checkReductionClauseWithNogroup(Sema &S,
+                                            ArrayRef<OMPClause *> Clauses) {
+  OMPClause *ReductionClause = nullptr;
+  OMPClause *NogroupClause = nullptr;
+  for (auto *C : Clauses) {
+    if (C->getClauseKind() == OMPC_reduction) {
+      ReductionClause = C;
+      if (NogroupClause)
+        break;
+      continue;
+    }
+    if (C->getClauseKind() == OMPC_nogroup) {
+      NogroupClause = C;
+      if (ReductionClause)
+        break;
+      continue;
+    }
+  }
+  if (ReductionClause && NogroupClause) {
+    S.Diag(ReductionClause->getLocStart(), diag::err_omp_reduction_with_nogroup)
+        << SourceRange(NogroupClause->getLocStart(),
+                       NogroupClause->getLocEnd());
+    return true;
+  }
+  return false;
+}
+
 StmtResult Sema::ActOnOpenMPTaskLoopDirective(
     ArrayRef<OMPClause *> Clauses, Stmt *AStmt, SourceLocation StartLoc,
     SourceLocation EndLoc,
@@ -6111,6 +6158,11 @@ StmtResult Sema::ActOnOpenMPTaskLoopDirective(
   // The grainsize clause and num_tasks clause are mutually exclusive and may
   // not appear on the same taskloop directive.
   if (checkGrainsizeNumTasksClauses(*this, Clauses))
+    return StmtError();
+  // OpenMP, [2.9.2 taskloop Construct, Restrictions]
+  // If a reduction clause is present on the taskloop directive, the nogroup
+  // clause must not be specified.
+  if (checkReductionClauseWithNogroup(*this, Clauses))
     return StmtError();
 
   getCurFunction()->setHasBranchProtectedScope();
@@ -6154,6 +6206,11 @@ StmtResult Sema::ActOnOpenMPTaskLoopSimdDirective(
   // The grainsize clause and num_tasks clause are mutually exclusive and may
   // not appear on the same taskloop directive.
   if (checkGrainsizeNumTasksClauses(*this, Clauses))
+    return StmtError();
+  // OpenMP, [2.9.2 taskloop Construct, Restrictions]
+  // If a reduction clause is present on the taskloop directive, the nogroup
+  // clause must not be specified.
+  if (checkReductionClauseWithNogroup(*this, Clauses))
     return StmtError();
 
   getCurFunction()->setHasBranchProtectedScope();
@@ -9379,6 +9436,12 @@ OMPClause *Sema::ActOnOpenMPReductionClause(
                          SimpleRefExpr, RefRes.get());
           if (!PostUpdateRes.isUsable())
             continue;
+          if (isOpenMPTaskingDirective(DSAStack->getCurrentDirective())) {
+            Diag(RefExpr->getExprLoc(),
+                 diag::err_omp_reduction_non_addressable_expression)
+                << RefExpr->getSourceRange();
+            continue;
+          }
           ExprPostUpdates.push_back(
               IgnoredValueConversions(PostUpdateRes.get()).get());
         }

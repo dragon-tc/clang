@@ -458,7 +458,10 @@ static void diagnoseUseOfProtocols(Sema &TheSema,
   // Diagnose availability in the context of the ObjC container.
   Sema::ContextRAII SavedContext(TheSema, CD);
   for (unsigned i = 0; i < NumProtoRefs; ++i) {
-    (void)TheSema.DiagnoseUseOfDecl(ProtoRefs[i], ProtoLocs[i]);
+    (void)TheSema.DiagnoseUseOfDecl(ProtoRefs[i], ProtoLocs[i],
+                                    /*UnknownObjCClass=*/nullptr,
+                                    /*ObjCPropertyAccess=*/false,
+                                    /*AvoidPartialAvailabilityChecks=*/true);
   }
 }
 
@@ -1850,10 +1853,6 @@ Decl *Sema::ActOnStartCategoryImplementation(
 
   // FIXME: PushOnScopeChains?
   CurContext->addDecl(CDecl);
-
-  // If the interface is deprecated/unavailable, warn/error about it.
-  if (IDecl)
-    DiagnoseUseOfDecl(IDecl, ClassLoc);
 
   // If the interface has the objc_runtime_visible attribute, we
   // cannot implement a category for it.
