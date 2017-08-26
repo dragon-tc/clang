@@ -256,7 +256,7 @@ class Parser : public CodeCompletionHandler {
   /// Whether to skip parsing of function bodies.
   ///
   /// This option can be used, for example, to speed up searches for
-  /// delcarations/definitions when indexing.
+  /// declarations/definitions when indexing.
   bool SkipFunctionBodies;
 
   /// The location of the expression statement that is being parsed right now.
@@ -2724,11 +2724,11 @@ private:
                                        AccessSpecifier AS=AS_none,
                                        AttributeList *AccessAttrs = nullptr);
   bool ParseTemplateParameters(unsigned Depth,
-                               SmallVectorImpl<Decl*> &TemplateParams,
+                               SmallVectorImpl<NamedDecl *> &TemplateParams,
                                SourceLocation &LAngleLoc,
                                SourceLocation &RAngleLoc);
   bool ParseTemplateParameterList(unsigned Depth,
-                                  SmallVectorImpl<Decl*> &TemplateParams);
+                                  SmallVectorImpl<NamedDecl*> &TemplateParams);
   bool isStartOfTemplateTypeParameter();
   Decl *ParseTemplateParameter(unsigned Depth, unsigned Position);
   Decl *ParseTypeParameter(unsigned Depth, unsigned Position);

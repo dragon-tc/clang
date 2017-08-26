@@ -213,9 +213,9 @@ def warn_auto_storage_class : Warning<
 
 def warn_deprecated_register : Warning<
   "'register' storage class specifier is deprecated "
-  "and incompatible with C++1z">, InGroup<DeprecatedRegister>;
+  "and incompatible with C++17">, InGroup<DeprecatedRegister>;
 def ext_register_storage_class : ExtWarn<
-  "ISO C++1z does not allow 'register' storage class specifier">,
+  "ISO C++17 does not allow 'register' storage class specifier">,
   DefaultError, InGroup<Register>;
 
 def err_invalid_decl_spec_combination : Error<
@@ -393,9 +393,9 @@ def err_decomp_decl_context : Error<
   "decomposition declaration not permitted in this context">;
 def warn_cxx14_compat_decomp_decl : Warning<
   "decomposition declarations are incompatible with "
-  "C++ standards before C++1z">, DefaultIgnore, InGroup<CXXPre1zCompat>;
+  "C++ standards before C++17">, DefaultIgnore, InGroup<CXXPre17Compat>;
 def ext_decomp_decl : ExtWarn<
-  "decomposition declarations are a C++1z extension">, InGroup<CXX1z>;
+  "decomposition declarations are a C++17 extension">, InGroup<CXX17>;
 def err_decomp_decl_spec : Error<
   "decomposition declaration cannot be declared "
   "%plural{1:'%1'|:with '%1' specifiers}0">;
@@ -496,7 +496,7 @@ def err_access_decl : Error<
   "ISO C++11 does not allow access declarations; "
   "use using declarations instead">;
 def ext_dynamic_exception_spec : ExtWarn<
-  "ISO C++1z does not allow dynamic exception specifications">,
+  "ISO C++17 does not allow dynamic exception specifications">,
   InGroup<DynamicExceptionSpec>, DefaultError;
 def warn_exception_spec_deprecated : Warning<
   "dynamic exception specifications are deprecated">,
@@ -507,9 +507,9 @@ def warn_deprecated_copy_operation : Warning<
   "for %0 is deprecated because it has a user-declared "
   "%select{copy %select{assignment operator|constructor}1|destructor}2">,
   InGroup<Deprecated>, DefaultIgnore;
-def warn_cxx1z_compat_exception_spec_in_signature : Warning<
+def warn_cxx17_compat_exception_spec_in_signature : Warning<
   "mangled name of %0 will change in C++17 due to non-throwing exception "
-  "specification in function signature">, InGroup<CXX1zCompatMangling>;
+  "specification in function signature">, InGroup<CXX17CompatMangling>;
 
 def warn_global_constructor : Warning<
   "declaration requires a global constructor">,
@@ -1211,21 +1211,25 @@ def err_objc_method_unsupported_param_ret_type : Error<
   "%0 %select{parameter|return}1 type is unsupported; "
   "support for vector types for this target is introduced in %2">;
 
+def warn_messaging_unqualified_id : Warning<
+  "messaging unqualified id">, DefaultIgnore,
+  InGroup<DiagGroup<"objc-messaging-id">>;
+
 // C++ declarations
 def err_static_assert_expression_is_not_constant : Error<
   "static_assert expression is not an integral constant expression">;
 def err_static_assert_failed : Error<"static_assert failed%select{ %1|}0">;
 def ext_static_assert_no_message : ExtWarn<
-  "static_assert with no message is a C++1z extension">, InGroup<CXX1z>;
+  "static_assert with no message is a C++17 extension">, InGroup<CXX17>;
 def warn_cxx14_compat_static_assert_no_message : Warning<
-  "static_assert with no message is incompatible with C++ standards before C++1z">,
-  DefaultIgnore, InGroup<CXXPre1zCompat>;
+  "static_assert with no message is incompatible with C++ standards before C++17">,
+  DefaultIgnore, InGroup<CXXPre17Compat>;
 
 def ext_inline_variable : ExtWarn<
-  "inline variables are a C++1z extension">, InGroup<CXX1z>;
+  "inline variables are a C++17 extension">, InGroup<CXX17>;
 def warn_cxx14_compat_inline_variable : Warning<
-  "inline variables are incompatible with C++ standards before C++1z">,
-  DefaultIgnore, InGroup<CXXPre1zCompat>;
+  "inline variables are incompatible with C++ standards before C++17">,
+  DefaultIgnore, InGroup<CXXPre17Compat>;
 
 def warn_inline_namespace_reopened_noninline : Warning<
   "inline namespace reopened as a non-inline namespace">;
@@ -1938,7 +1942,7 @@ def err_auto_not_allowed : Error<
   "|in non-static struct member|in struct member"
   "|in non-static union member|in union member"
   "|in non-static class member|in interface member"
-  "|in exception declaration|in template parameter until C++1z|in block literal"
+  "|in exception declaration|in template parameter until C++17|in block literal"
   "|in template argument|in typedef|in type alias|in function return type"
   "|in conversion function type|here|in lambda parameter"
   "|in type allocated by 'new'|in K&R-style function parameter"
@@ -2015,7 +2019,7 @@ def err_decltype_auto_compound_type : Error<
 def err_decltype_auto_initializer_list : Error<
   "cannot deduce 'decltype(auto)' from initializer list">;
 
-// C++1z deduced class template specialization types
+// C++17 deduced class template specialization types
 def err_deduced_class_template_compound_type : Error<
   "cannot %select{form pointer to|form reference to|form array of|"
   "form function returning|use parentheses when declaring variable with}0 "
@@ -2163,11 +2167,11 @@ def err_for_range_iter_deduction_failure : Error<
 def err_for_range_member_begin_end_mismatch : Error<
   "range type %0 has '%select{begin|end}1' member but no '%select{end|begin}1' member">;
 def ext_for_range_begin_end_types_differ : ExtWarn<
-  "'begin' and 'end' returning different types (%0 and %1) is a C++1z extension">,
-  InGroup<CXX1z>;
+  "'begin' and 'end' returning different types (%0 and %1) is a C++17 extension">,
+  InGroup<CXX17>;
 def warn_for_range_begin_end_types_differ : Warning<
   "'begin' and 'end' returning different types (%0 and %1) is incompatible "
-  "with C++ standards before C++1z">, InGroup<CXXPre1zCompat>, DefaultIgnore;
+  "with C++ standards before C++17">, InGroup<CXXPre17Compat>, DefaultIgnore;
 def note_in_for_range: Note<
   "when looking up '%select{begin|end}0' function for range expression "
   "of type %1">;
@@ -2896,25 +2900,11 @@ def warn_unguarded_availability :
 def warn_unguarded_availability_new :
   Warning<warn_unguarded_availability.Text>,
   InGroup<UnguardedAvailabilityNew>;
-def warn_partial_availability : Warning<"%0 is only available conditionally">,
-    InGroup<UnguardedAvailability>, DefaultIgnore;
-def warn_partial_availability_new : Warning<warn_partial_availability.Text>,
-  InGroup<UnguardedAvailabilityNew>;
-def note_partial_availability_silence : Note<
-  "annotate %select{%1|anonymous %1}0 with an availability attribute to silence">;
+def note_decl_unguarded_availability_silence : Note<
+  "annotate %select{%1|anonymous %1}0 with an availability attribute to silence this warning">;
 def note_unguarded_available_silence : Note<
   "enclose %0 in %select{an @available|a __builtin_available}1 check to silence"
   " this warning">;
-def warn_partial_message : Warning<"%0 is partial: %1">,
-    InGroup<UnguardedAvailability>, DefaultIgnore;
-def warn_partial_message_new : Warning<warn_partial_message.Text>,
-  InGroup<UnguardedAvailabilityNew>;
-def warn_partial_fwdclass_message : Warning<
-    "%0 may be partial because the receiver type is unknown">,
-    InGroup<UnguardedAvailability>, DefaultIgnore;
-def warn_partial_fwdclass_message_new :
-  Warning<warn_partial_fwdclass_message.Text>,
-  InGroup<UnguardedAvailabilityNew>;
 def warn_at_available_unchecked_use : Warning<
   "%select{@available|__builtin_available}0 does not guard availability here; "
   "use if (%select{@available|__builtin_available}0) instead">,
@@ -3927,8 +3917,8 @@ def err_template_nontype_parm_bad_type : Error<
   "a non-type template parameter cannot have type %0">;
 def warn_cxx14_compat_template_nontype_parm_auto_type : Warning<
   "non-type template parameters declared with %0 are incompatible with C++ "
-  "standards before C++1z">,
-  DefaultIgnore, InGroup<CXXPre1zCompat>;
+  "standards before C++17">,
+  DefaultIgnore, InGroup<CXXPre17Compat>;
 def err_template_param_default_arg_redefinition : Error<
   "template parameter redefines default argument">;
 def note_template_param_prev_default_arg : Note<
@@ -4102,6 +4092,13 @@ def err_pointer_to_member_call_drops_quals : Error<
 def err_pointer_to_member_oper_value_classify: Error<
   "pointer-to-member function type %0 can only be called on an "
   "%select{rvalue|lvalue}1">;
+def ext_pointer_to_const_ref_member_on_rvalue : Extension<
+  "invoking a pointer to a 'const &' member function on an rvalue is a C++2a extension">,
+  InGroup<CXX2a>, SFINAEFailure;
+def warn_cxx17_compat_pointer_to_const_ref_member_on_rvalue : Warning<
+  "invoking a pointer to a 'const &' member function on an rvalue is "
+  "incompatible with C++ standards before C++2a">,
+  InGroup<CXXPre2aCompatPedantic>, DefaultIgnore;
 def ext_ms_deref_template_argument: ExtWarn<
   "non-type template argument containing a dereference operation is a "
   "Microsoft extension">, InGroup<MicrosoftTemplate>;
@@ -6363,9 +6360,9 @@ def note_member_first_declared_here : Note<
 def err_decrement_bool : Error<"cannot decrement expression of type bool">;
 def warn_increment_bool : Warning<
   "incrementing expression of type bool is deprecated and "
-  "incompatible with C++1z">, InGroup<DeprecatedIncrementBool>;
+  "incompatible with C++17">, InGroup<DeprecatedIncrementBool>;
 def ext_increment_bool : ExtWarn<
-  "ISO C++1z does not allow incrementing expression of type bool">,
+  "ISO C++17 does not allow incrementing expression of type bool">,
   DefaultError, InGroup<IncrementBool>;
 def err_increment_decrement_enum : Error<
   "cannot %select{decrement|increment}0 expression of enum type %1">;
@@ -6484,8 +6481,6 @@ let CategoryName = "Lambda Issue" in {
     "%0 can appear only once in a capture list">;
   def err_reference_capture_with_reference_default : Error<
     "'&' cannot precede a capture when the capture default is '&'">;
-  def err_this_capture_with_copy_default : Error<
-    "'this' cannot be explicitly captured when the capture default is '='">;
   def err_copy_capture_with_copy_default : Error<
     "'&' must precede a capture when the capture default is '='">;
   def err_capture_does_not_name_variable : Error<
@@ -6552,12 +6547,20 @@ let CategoryName = "Lambda Issue" in {
   def err_init_capture_deduction_failure_from_init_list : Error<
     "cannot deduce type for lambda capture %0 from initializer list">;
 
-  // C++1z '*this' captures.
+  // C++17 '*this' captures.
   def warn_cxx14_compat_star_this_lambda_capture : Warning<
-    "by value capture of '*this' is incompatible with C++ standards before C++1z">,
-     InGroup<CXXPre1zCompat>, DefaultIgnore;
-  def ext_star_this_lambda_capture_cxx1z : ExtWarn<
-    "capture of '*this' by copy is a C++1z extension">, InGroup<CXX1z>;
+    "by value capture of '*this' is incompatible with C++ standards before C++17">,
+     InGroup<CXXPre17Compat>, DefaultIgnore;
+  def ext_star_this_lambda_capture_cxx17 : ExtWarn<
+    "capture of '*this' by copy is a C++17 extension">, InGroup<CXX17>;
+
+  // C++2a [=, this] captures.
+  def warn_cxx17_compat_equals_this_lambda_capture : Warning<
+    "explicit capture of 'this' with a capture default of '=' is incompatible "
+    "with C++ standards before C++2a">, InGroup<CXXPre2aCompat>, DefaultIgnore;
+  def ext_equals_this_lambda_capture_cxx2a : ExtWarn<
+    "explicit capture of 'this' with a capture default of '=' "
+    "is a C++2a extension">, InGroup<CXX2a>;
 }
 
 def err_return_in_captured_stmt : Error<
@@ -7026,8 +7029,6 @@ def warn_atomic_op_has_invalid_memory_order : Warning<
   InGroup<DiagGroup<"atomic-memory-ordering">>;
 def err_atomic_op_has_invalid_synch_scope : Error<
   "synchronization scope argument to atomic operation is invalid">;
-def err_atomic_op_has_non_constant_synch_scope : Error<
-  "non-constant synchronization scope argument to atomic operation is not supported">;
 
 def err_overflow_builtin_must_be_int : Error<
   "operand argument to overflow builtin must be an integer (%0 invalid)">;
@@ -7229,8 +7230,8 @@ def warn_unused_volatile : Warning<
 
 def ext_cxx14_attr : Extension<
   "use of the %0 attribute is a C++14 extension">, InGroup<CXX14>;
-def ext_cxx1z_attr : Extension<
-  "use of the %0 attribute is a C++1z extension">, InGroup<CXX1z>;
+def ext_cxx17_attr : Extension<
+  "use of the %0 attribute is a C++17 extension">, InGroup<CXX17>;
 
 def warn_unused_comparison : Warning<
   "%select{%select{|in}1equality|relational}0 comparison result unused">,

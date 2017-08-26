@@ -20,6 +20,7 @@
 #include "CGRecordLayout.h"
 #include "CodeGenFunction.h"
 #include "CodeGenModule.h"
+#include "ConstantEmitter.h"
 #include "TargetInfo.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Attr.h"
@@ -356,7 +357,7 @@ static Address createReferenceTemporary(CodeGenFunction &CGF,
     if (CGF.CGM.getCodeGenOpts().MergeAllConstants &&
         (Ty->isArrayType() || Ty->isRecordType()) &&
         CGF.CGM.isTypeConstant(Ty, true))
-      if (llvm::Constant *Init = CGF.CGM.EmitConstantExpr(Inner, Ty, &CGF)) {
+      if (auto Init = ConstantEmitter(CGF).tryEmitAbstract(Inner, Ty)) {
         if (auto AddrSpace = CGF.getTarget().getConstantAddressSpace()) {
           auto AS = AddrSpace.getValue();
           auto *GV = new llvm::GlobalVariable(
@@ -1318,7 +1319,8 @@ CodeGenFunction::tryEmitAsConstant(DeclRefExpr *refExpr) {
     return ConstantEmission();
 
   // Emit as a constant.
-  llvm::Constant *C = CGM.EmitConstantValue(result.Val, resultType, this);
+  auto C = ConstantEmitter(*this).emitAbstract(refExpr->getLocation(),
+                                               result.Val, resultType);
 
   // Make sure we emit a debug reference to the global variable.
   // This should probably fire even for
@@ -1335,6 +1337,25 @@ CodeGenFunction::tryEmitAsConstant(DeclRefExpr *refExpr) {
     return ConstantEmission::forReference(C);
 
   return ConstantEmission::forValue(C);
+}
+
+static DeclRefExpr *tryToConvertMemberExprToDeclRefExpr(CodeGenFunction &CGF,
+                                                        const MemberExpr *ME) {
+  if (auto *VD = dyn_cast<VarDecl>(ME->getMemberDecl())) {
+    // Try to emit static variable member expressions as DREs.
+    return DeclRefExpr::Create(
+        CGF.getContext(), NestedNameSpecifierLoc(), SourceLocation(), VD,
+        /*RefersToEnclosingVariableOrCapture=*/false, ME->getExprLoc(),
+        ME->getType(), ME->getValueKind());
+  }
+  return nullptr;
+}
+
+CodeGenFunction::ConstantEmission
+CodeGenFunction::tryEmitAsConstant(const MemberExpr *ME) {
+  if (DeclRefExpr *DRE = tryToConvertMemberExprToDeclRefExpr(*this, ME))
+    return tryEmitAsConstant(DRE);
+  return ConstantEmission();
 }
 
 llvm::Value *CodeGenFunction::EmitLoadOfScalar(LValue lvalue,
@@ -2283,7 +2304,9 @@ LValue CodeGenFunction::EmitDeclRefLValue(const DeclRefExpr *E) {
         !(E->refersToEnclosingVariableOrCapture() && CapturedStmtInfo &&
           LocalDeclMap.count(VD))) {
       llvm::Constant *Val =
-        CGM.EmitConstantValue(*VD->evaluateValue(), VD->getType(), this);
+        ConstantEmitter(*this).emitAbstract(E->getLocation(),
+                                            *VD->evaluateValue(),
+                                            VD->getType());
       assert(Val && "failed to emit reference constant expression");
       // FIXME: Eventually we will want to emit vector element references.
 
@@ -2296,6 +2319,7 @@ LValue CodeGenFunction::EmitDeclRefLValue(const DeclRefExpr *E) {
 
     // Check for captured variables.
     if (E->refersToEnclosingVariableOrCapture()) {
+      VD = VD->getCanonicalDecl();
       if (auto *FD = LambdaCaptureFields.lookup(VD))
         return EmitCapturedFieldLValue(*this, FD, CXXABIThisValue);
       else if (CapturedStmtInfo) {
@@ -3535,6 +3559,11 @@ EmitExtVectorElementExpr(const ExtVectorElementExpr *E) {
 }
 
 LValue CodeGenFunction::EmitMemberExpr(const MemberExpr *E) {
+  if (DeclRefExpr *DRE = tryToConvertMemberExprToDeclRefExpr(*this, E)) {
+    EmitIgnoredExpr(E->getBase());
+    return EmitDeclRefLValue(DRE);
+  }
+
   Expr *BaseExpr = E->getBase();
   // If this is s.x, emit s as an lvalue.  If it is s->x, emit s as a scalar.
   LValue BaseLV;
@@ -3560,9 +3589,6 @@ LValue CodeGenFunction::EmitMemberExpr(const MemberExpr *E) {
     setObjCGCLValueClass(getContext(), E, LV);
     return LV;
   }
-
-  if (auto *VD = dyn_cast<VarDecl>(ND))
-    return EmitGlobalVarDeclLValue(*this, E, VD);
 
   if (const auto *FD = dyn_cast<FunctionDecl>(ND))
     return EmitFunctionDeclLValue(*this, E, FD);

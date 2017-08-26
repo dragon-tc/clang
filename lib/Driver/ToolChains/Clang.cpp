@@ -2340,6 +2340,10 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                     true))
     CmdArgs.push_back("-fno-jump-tables");
 
+  if (Args.hasFlag(options::OPT_fprofile_sample_accurate,
+                   options::OPT_fno_profile_sample_accurate, false))
+    CmdArgs.push_back("-fprofile-sample-accurate");
+
   if (!Args.hasFlag(options::OPT_fpreserve_as_comments,
                     options::OPT_fno_preserve_as_comments, true))
     CmdArgs.push_back("-fno-preserve-as-comments");
@@ -2928,6 +2932,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   Args.AddAllArgs(CmdArgs, options::OPT_finstrument_functions);
 
   addPGOAndCoverageFlags(C, D, Output, Args, CmdArgs);
+
+  if (auto *ABICompatArg = Args.getLastArg(options::OPT_fclang_abi_compat_EQ))
+    ABICompatArg->render(Args, CmdArgs);
 
   // Add runtime flag for PS4 when PGO or Coverage are enabled.
   if (getToolChain().getTriple().isPS4CPU())
@@ -4261,10 +4268,13 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       CmdArgs.push_back(A->getValue());
     } else {
       SmallString<128> F;
-      if (Output.isFilename() && (Args.hasArg(options::OPT_c) ||
-                                  Args.hasArg(options::OPT_S))) {
-        F = Output.getFilename();
-      } else {
+
+      if (Args.hasArg(options::OPT_c) || Args.hasArg(options::OPT_S)) {
+        if (Arg *FinalOutput = Args.getLastArg(options::OPT_o))
+          F = FinalOutput->getValue();
+      }
+
+      if (F.empty()) {
         // Use the input filename.
         F = llvm::sys::path::stem(Input.getBaseInput());
 

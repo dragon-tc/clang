@@ -966,6 +966,8 @@ Optional<unsigned> Parser::ParseLambdaIntroducer(LambdaIntroducer &Intro,
     // that would be an error.
 
     ParsedType InitCaptureType;
+    if (!Init.isInvalid())
+      Init = Actions.CorrectDelayedTyposInExpr(Init.get());
     if (Init.isUsable()) {
       // Get the pointer and store it in an lvalue, so we can use it as an
       // out argument.
@@ -1054,7 +1056,7 @@ addConstexprToLambdaDeclSpecifier(Parser &P, SourceLocation ConstexprLoc,
                                   DeclSpec &DS) {
   if (ConstexprLoc.isValid()) {
     P.Diag(ConstexprLoc, !P.getLangOpts().CPlusPlus1z
-                             ? diag::ext_constexpr_on_lambda_cxx1z
+                             ? diag::ext_constexpr_on_lambda_cxx17
                              : diag::warn_cxx14_compat_constexpr_on_lambda);
     const char *PrevSpec = nullptr;
     unsigned DiagID = 0;
