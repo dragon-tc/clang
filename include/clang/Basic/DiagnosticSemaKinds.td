@@ -1984,6 +1984,9 @@ def err_auto_var_deduction_failure_from_init_list : Error<
   "cannot deduce actual type for variable %0 with type %1 from initializer list">;
 def err_auto_new_deduction_failure : Error<
   "new expression for type %0 has incompatible constructor argument of type %1">;
+def err_auto_inconsistent_deduction : Error<
+  "deduced conflicting types %diff{($ vs $) |}0,1"
+  "for initializer list element type">;
 def err_auto_different_deductions : Error<
   "%select{'auto'|'decltype(auto)'|'__auto_type'|template arguments}0 "
   "deduced as %1 in declaration of %2 and "
@@ -6414,12 +6417,12 @@ def warn_non_virtual_dtor : Warning<
 def warn_delete_non_virtual_dtor : Warning<
   "%select{delete|destructor}0 called on non-final %1 that has "
   "virtual functions but non-virtual destructor">,
-  InGroup<DeleteNonVirtualDtor>, DefaultIgnore;
+  InGroup<DeleteNonVirtualDtor>, DefaultIgnore, ShowInSystemHeader;
 def note_delete_non_virtual : Note<
   "qualify call to silence this warning">;
 def warn_delete_abstract_non_virtual_dtor : Warning<
   "%select{delete|destructor}0 called on %1 that is abstract but has "
-  "non-virtual destructor">, InGroup<DeleteNonVirtualDtor>;
+  "non-virtual destructor">, InGroup<DeleteNonVirtualDtor>, ShowInSystemHeader;
 def warn_overloaded_virtual : Warning<
   "%q0 hides overloaded virtual %select{function|functions}1">,
   InGroup<OverloadedVirtual>, DefaultIgnore;
@@ -7346,8 +7349,8 @@ def err_invalid_conversion_between_vector_and_integer : Error<
 def err_opencl_function_pointer : Error<
   "pointers to functions are not allowed">;
 
-def err_opencl_taking_function_address : Error<
-  "taking address of function is not allowed">;
+def err_opencl_taking_address_capture : Error<
+  "taking address of a capture is not allowed">;
 
 def err_invalid_conversion_between_vector_and_scalar : Error<
   "invalid conversion between vector type %0 and scalar type %1">;
@@ -7899,6 +7902,8 @@ def err_builtin_annotation_first_arg : Error<
   "first argument to __builtin_annotation must be an integer">;
 def err_builtin_annotation_second_arg : Error<
   "second argument to __builtin_annotation must be a non-wide string constant">;
+def err_msvc_annotation_wide_str : Error<
+  "arguments to __annotation must be wide string constants">;
 
 // CFString checking
 def err_cfstring_literal_not_string_constant : Error<
