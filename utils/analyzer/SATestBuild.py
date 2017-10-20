@@ -570,7 +570,11 @@ def runCmpResults(Dir, Strictness=0):
       0 - success if there are no crashes or analyzer failure.
       1 - success if there are no difference in the number of reported bugs.
       2 - success if all the bug reports are identical.
+
+    :return success: Whether tests pass according to the Strictness
+    criteria.
     """
+    TestsPassed = True
     TBegin = time.time()
 
     RefDir = os.path.join(Dir, SBOutputDirReferencePrefix + SBOutputDirName)
@@ -586,8 +590,6 @@ def runCmpResults(Dir, Strictness=0):
         RefList.remove(RefLogDir)
     NewList.remove(os.path.join(NewDir, LogFolderName))
 
-    if len(RefList) == 0 or len(NewList) == 0:
-        return False
     assert(len(RefList) == len(NewList))
 
     # There might be more then one folder underneath - one per each scan-build
@@ -624,15 +626,15 @@ def runCmpResults(Dir, Strictness=0):
                   (NumDiffs, DiffsPath,)
         if Strictness >= 2 and NumDiffs > 0:
             print "Error: Diffs found in strict mode (2)."
-            sys.exit(-1)
+            TestsPassed = False
         elif Strictness >= 1 and ReportsInRef != ReportsInNew:
             print "Error: The number of results are different in "\
                   "strict mode (1)."
-            sys.exit(-1)
+            TestsPassed = False
 
     print "Diagnostic comparison complete (time: %.2f)." % (
           time.time() - TBegin)
-    return (NumDiffs > 0)
+    return TestsPassed
 
 
 def cleanupReferenceResults(SBOutputDir):
@@ -651,41 +653,12 @@ def cleanupReferenceResults(SBOutputDir):
     removeLogFile(SBOutputDir)
 
 
-def updateSVN(Mode, PMapFile):
-    """
-    svn delete or svn add (depending on `Mode`) all folders defined in the file
-    handler `PMapFile`.
-    Commit the result to SVN.
-    """
-    try:
-        for I in iterateOverProjects(PMapFile):
-            ProjName = I[0]
-            Path = os.path.join(ProjName, getSBOutputDirName(True))
-
-            if Mode == "delete":
-                Command = "svn delete '%s'" % (Path,)
-            else:
-                Command = "svn add '%s'" % (Path,)
-
-            if Verbose == 1:
-                print "  Executing: %s" % (Command,)
-            check_call(Command, shell=True)
-
-        if Mode == "delete":
-            CommitCommand = "svn commit -m \"[analyzer tests] Remove " \
-                            "reference results.\""
-        else:
-            CommitCommand = "svn commit -m \"[analyzer tests] Add new " \
-                            "reference results.\""
-        if Verbose == 1:
-            print "  Executing: %s" % (CommitCommand,)
-        check_call(CommitCommand, shell=True)
-    except:
-        print "Error: SVN update failed."
-        sys.exit(-1)
-
-
 def testProject(ID, ProjectBuildMode, IsReferenceBuild=False, Strictness=0):
+    """
+    Test a given project.
+    :return TestsPassed: Whether tests have passed according
+    to the :param Strictness: criteria.
+    """
     print " \n\n--- Building project %s" % (ID,)
 
     TBegin = time.time()
@@ -704,11 +677,13 @@ def testProject(ID, ProjectBuildMode, IsReferenceBuild=False, Strictness=0):
 
     if IsReferenceBuild:
         cleanupReferenceResults(SBOutputDir)
+        TestsPassed = True
     else:
-        runCmpResults(Dir, Strictness)
+        TestsPassed = runCmpResults(Dir, Strictness)
 
     print "Completed tests for project %s (time: %.2f)." % \
           (ID, (time.time() - TBegin))
+    return TestsPassed
 
 
 def isCommentCSVLine(Entries):
@@ -748,24 +723,15 @@ def validateProjectFile(PMapFile):
             raise Exception()
 
 
-def testAll(IsReferenceBuild=False, UpdateSVN=False, Strictness=0):
+def testAll(IsReferenceBuild=False, Strictness=0):
+    TestsPassed = True
     with projectFileHandler() as PMapFile:
         validateProjectFile(PMapFile)
 
-        # When we are regenerating the reference results, we might need to
-        # update svn. Remove reference results from SVN.
-        if UpdateSVN:
-            assert(IsReferenceBuild)
-            updateSVN("delete", PMapFile)
-
         # Test the projects.
         for (ProjName, ProjBuildMode) in iterateOverProjects(PMapFile):
-            testProject(
+            TestsPassed &= testProject(
                 ProjName, int(ProjBuildMode), IsReferenceBuild, Strictness)
-
-        # Re-add reference results to SVN.
-        if UpdateSVN:
-            updateSVN("add", PMapFile)
 
 
 if __name__ == '__main__':
@@ -779,18 +745,13 @@ if __name__ == '__main__':
                              reference. Default is 0.')
     Parser.add_argument('-r', dest='regenerate', action='store_true',
                         default=False, help='Regenerate reference output.')
-    Parser.add_argument('-rs', dest='update_reference', action='store_true',
-                        default=False,
-                        help='Regenerate reference output and update svn.')
     Args = Parser.parse_args()
 
     IsReference = False
-    UpdateSVN = False
     Strictness = Args.strictness
     if Args.regenerate:
         IsReference = True
-    elif Args.update_reference:
-        IsReference = True
-        UpdateSVN = True
 
-    testAll(IsReference, UpdateSVN, Strictness)
+    TestsPassed = testAll(IsReference, Strictness)
+    if not TestsPassed:
+        sys.exit(-1)

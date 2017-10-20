@@ -78,6 +78,10 @@ Improvements to Clang's diagnostics
   when the signed integer is coerced to an unsigned type for the comparison.
   ``-Wsign-compare`` was adjusted not to warn in this case.
 
+- ``-Wtautological-constant-compare`` is a new warning that warns on
+  tautological comparisons between integer variable of the type ``T`` and the
+  largest/smallest possible integer constant of that same type.
+
 - ``-Wnull-pointer-arithmetic`` now warns about performing pointer arithmetic
   on a null pointer. Such pointer arithmetic has an undefined behavior if the
   offset is nonzero. It also now warns about arithmetic on a null pointer
@@ -88,6 +92,11 @@ Non-comprehensive list of changes in this release
 
 - Bitrig OS was merged back into OpenBSD, so Bitrig support has been
   removed from Clang/LLVM.
+
+- The default value of _MSC_VER was raised from 1800 to 1911, making it
+  compatible with the Visual Studio 2015 and 2017 C++ standard library headers.
+  Users should generally expect this to be regularly raised to match the most
+  recently released version of the Visual C++ compiler.
 
 New Compiler Flags
 ------------------

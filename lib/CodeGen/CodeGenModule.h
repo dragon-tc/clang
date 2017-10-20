@@ -666,9 +666,8 @@ public:
 
   llvm::MDNode *getTBAAStructInfo(QualType QTy);
 
-  /// getTBAABaseTypeMetadata - Get metadata that describes the given base
-  /// access type. Return null if the type is not suitable for use in TBAA
-  /// access tags.
+  /// getTBAABaseTypeInfo - Get metadata that describes the given base access
+  /// type. Return null if the type is not suitable for use in TBAA access tags.
   llvm::MDNode *getTBAABaseTypeInfo(QualType QTy);
 
   /// getTBAAAccessTagInfo - Get TBAA tag for a given memory access.
@@ -677,6 +676,11 @@ public:
   /// getTBAAMayAliasAccessInfo - Get TBAA information that represents
   /// may-alias accesses.
   TBAAAccessInfo getTBAAMayAliasAccessInfo();
+
+  /// mergeTBAAInfoForCast - Get merged TBAA information for the purposes of
+  /// type casts.
+  TBAAAccessInfo mergeTBAAInfoForCast(TBAAAccessInfo SourceInfo,
+                                      TBAAAccessInfo TargetInfo);
 
   bool isTypeConstant(QualType QTy, bool ExcludeCtorDtor);
 
@@ -736,7 +740,7 @@ public:
   ///
   /// For languages without explicit address spaces, if D has default address
   /// space, target-specific global or constant address space may be returned.
-  unsigned GetGlobalVarAddressSpace(const VarDecl *D);
+  LangAS GetGlobalVarAddressSpace(const VarDecl *D);
 
   /// Return the llvm::Constant for the address of the given global variable.
   /// If Ty is non-null and if the global doesn't exist, then it will be created
@@ -1146,8 +1150,7 @@ public:
   /// are emitted lazily.
   void EmitGlobal(GlobalDecl D);
 
-  bool TryEmitDefinitionAsAlias(GlobalDecl Alias, GlobalDecl Target,
-                                bool InEveryTU);
+  bool TryEmitDefinitionAsAlias(GlobalDecl Alias, GlobalDecl Target);
   bool TryEmitBaseDestructorAsAlias(const CXXDestructorDecl *D);
 
   /// Set attributes for a global definition.
