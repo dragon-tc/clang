@@ -1044,7 +1044,8 @@ Corrected:
   }
 
   // We can have a type template here if we're classifying a template argument.
-  if (isa<TemplateDecl>(FirstDecl) && !isa<FunctionTemplateDecl>(FirstDecl))
+  if (isa<TemplateDecl>(FirstDecl) && !isa<FunctionTemplateDecl>(FirstDecl) &&
+      !isa<VarTemplateDecl>(FirstDecl))
     return NameClassification::TypeTemplate(
         TemplateName(cast<TemplateDecl>(FirstDecl)));
 
@@ -4503,7 +4504,7 @@ Decl *Sema::BuildAnonymousStructOrUnion(Scope *S, DeclSpec &DS,
     // trivial in almost all cases, except if a union member has an in-class
     // initializer:
     //   union { int n = 0; };
-    ActOnUninitializedDecl(Anon, /*TypeMayContainAuto=*/false);
+    ActOnUninitializedDecl(Anon);
   }
   Anon->setImplicit();
 
@@ -4837,6 +4838,9 @@ Decl *Sema::ActOnDeclarator(Scope *S, Declarator &D) {
   if (OriginalLexicalContext && OriginalLexicalContext->isObjCContainer() &&
       Dcl && Dcl->getDeclContext()->isFileContext())
     Dcl->setTopLevelDeclInObjCContainer();
+
+  if (getLangOpts().OpenCL)
+    setCurrentOpenCLExtensionForDecl(Dcl);
 
   return Dcl;
 }
@@ -5939,7 +5943,7 @@ NamedDecl *Sema::ActOnVariableDeclarator(
       NR = NR->getPointeeType();
     }
 
-    if (!getOpenCLOptions().cl_khr_fp16) {
+    if (!getOpenCLOptions().isEnabled("cl_khr_fp16")) {
       // OpenCL v1.2 s6.1.1.1: reject declaring variables of the half and
       // half array type (unless the cl_khr_fp16 extension is enabled).
       if (Context.getBaseElementType(R)->isHalfType()) {
@@ -6422,9 +6426,10 @@ NamedDecl *Sema::ActOnVariableDeclarator(
     }
   }
 
-  // Diagnose shadowed variables before filtering for scope.
-  if (D.getCXXScopeSpec().isEmpty())
-    CheckShadow(S, NewVD, Previous);
+  // Find the shadowed declaration before filtering for scope.
+  NamedDecl *ShadowedDecl = D.getCXXScopeSpec().isEmpty()
+                                ? getShadowedDeclaration(NewVD, Previous)
+                                : nullptr;
 
   // Don't consider existing declarations that are in a different
   // scope and are out-of-semantic-context declarations (if the new
@@ -6519,6 +6524,10 @@ NamedDecl *Sema::ActOnVariableDeclarator(
     }
   }
 
+  // Diagnose shadowed variables iff this isn't a redeclaration.
+  if (ShadowedDecl && !D.isRedeclaration())
+    CheckShadow(NewVD, ShadowedDecl, Previous);
+
   ProcessPragmaWeak(S, NewVD);
 
   // If this is the first declaration of an extern C variable, update
@@ -6592,33 +6601,40 @@ static SourceLocation getCaptureLocation(const LambdaScopeInfo *LSI,
   return SourceLocation();
 }
 
+/// \brief Return the declaration shadowed by the given variable \p D, or null
+/// if it doesn't shadow any declaration or shadowing warnings are disabled.
+NamedDecl *Sema::getShadowedDeclaration(const VarDecl *D,
+                                        const LookupResult &R) {
+  // Return if warning is ignored.
+  if (Diags.isIgnored(diag::warn_decl_shadow, R.getNameLoc()))
+    return nullptr;
+
+  // Don't diagnose declarations at file scope.
+  if (D->hasGlobalStorage())
+    return nullptr;
+
+  // Only diagnose if we're shadowing an unambiguous field or variable.
+  if (R.getResultKind() != LookupResult::Found)
+    return nullptr;
+
+  NamedDecl *ShadowedDecl = R.getFoundDecl();
+  return isa<VarDecl>(ShadowedDecl) || isa<FieldDecl>(ShadowedDecl)
+             ? ShadowedDecl
+             : nullptr;
+}
+
 /// \brief Diagnose variable or built-in function shadowing.  Implements
 /// -Wshadow.
 ///
 /// This method is called whenever a VarDecl is added to a "useful"
 /// scope.
 ///
-/// \param S the scope in which the shadowing name is being declared
+/// \param ShadowedDecl the declaration that is shadowed by the given variable
 /// \param R the lookup of the name
 ///
-void Sema::CheckShadow(Scope *S, VarDecl *D, const LookupResult& R) {
-  // Return if warning is ignored.
-  if (Diags.isIgnored(diag::warn_decl_shadow, R.getNameLoc()))
-    return;
-
-  // Don't diagnose declarations at file scope.
-  if (D->hasGlobalStorage())
-    return;
-
+void Sema::CheckShadow(VarDecl *D, NamedDecl *ShadowedDecl,
+                       const LookupResult &R) {
   DeclContext *NewDC = D->getDeclContext();
-
-  // Only diagnose if we're shadowing an unambiguous field or variable.
-  if (R.getResultKind() != LookupResult::Found)
-    return;
-
-  NamedDecl* ShadowedDecl = R.getFoundDecl();
-  if (!isa<VarDecl>(ShadowedDecl) && !isa<FieldDecl>(ShadowedDecl))
-    return;
 
   if (FieldDecl *FD = dyn_cast<FieldDecl>(ShadowedDecl)) {
     // Fields are not shadowed by variables in C++ static methods.
@@ -6729,7 +6745,8 @@ void Sema::CheckShadow(Scope *S, VarDecl *D) {
   LookupResult R(*this, D->getDeclName(), D->getLocation(),
                  Sema::LookupOrdinaryName, Sema::ForRedeclaration);
   LookupName(R, S);
-  CheckShadow(S, D, R);
+  if (NamedDecl *ShadowedDecl = getShadowedDeclaration(D, R))
+    CheckShadow(D, ShadowedDecl, R);
 }
 
 /// Check if 'E', which is an expression that is about to be modified, refers
@@ -6909,7 +6926,7 @@ void Sema::CheckVariableDeclarationType(VarDecl *NewVD) {
   // OpenCL v1.2 s6.8 - The static qualifier is valid only in program
   // scope.
   if (getLangOpts().OpenCLVersion == 120 &&
-      !getOpenCLOptions().cl_clang_storage_class_specifiers &&
+      !getOpenCLOptions().isEnabled("cl_clang_storage_class_specifiers") &&
       NewVD->isStaticLocal()) {
     Diag(NewVD->getLocation(), diag::err_static_function_scope);
     NewVD->setInvalidDecl();
@@ -7586,7 +7603,7 @@ enum OpenCLParamType {
   ValidKernelParam,
   PtrPtrKernelParam,
   PtrKernelParam,
-  PrivatePtrKernelParam,
+  InvalidAddrSpacePtrKernelParam,
   InvalidKernelParam,
   RecordKernelParam
 };
@@ -7596,8 +7613,10 @@ static OpenCLParamType getOpenCLKernelParameterType(Sema &S, QualType PT) {
     QualType PointeeType = PT->getPointeeType();
     if (PointeeType->isPointerType())
       return PtrPtrKernelParam;
-    return PointeeType.getAddressSpace() == 0 ? PrivatePtrKernelParam
-                                              : PtrKernelParam;
+    if (PointeeType.getAddressSpace() == LangAS::opencl_generic ||
+        PointeeType.getAddressSpace() == 0)
+      return InvalidAddrSpacePtrKernelParam;
+    return PtrKernelParam;
   }
 
   // TODO: Forbid the other integer types (size_t, ptrdiff_t...) when they can
@@ -7615,7 +7634,7 @@ static OpenCLParamType getOpenCLKernelParameterType(Sema &S, QualType PT) {
   // OpenCL extension spec v1.2 s9.5:
   // This extension adds support for half scalar and vector types as built-in
   // types that can be used for arithmetic operations, conversions etc.
-  if (!S.getOpenCLOptions().cl_khr_fp16 && PT->isHalfType())
+  if (!S.getOpenCLOptions().isEnabled("cl_khr_fp16") && PT->isHalfType())
     return InvalidKernelParam;
 
   if (PT->isRecordType())
@@ -7645,11 +7664,12 @@ static void checkIsValidOpenCLKernelParameter(
     D.setInvalidType();
     return;
 
-  case PrivatePtrKernelParam:
-    // OpenCL v1.2 s6.9.a:
-    // A kernel function argument cannot be declared as a
-    // pointer to the private address space.
-    S.Diag(Param->getLocation(), diag::err_opencl_private_ptr_kernel_param);
+  case InvalidAddrSpacePtrKernelParam:
+    // OpenCL v1.0 s6.5:
+    // __kernel function arguments declared to be a pointer of a type can point
+    // to one of the following address spaces only : __global, __local or
+    // __constant.
+    S.Diag(Param->getLocation(), diag::err_kernel_arg_address_space);
     D.setInvalidType();
     return;
 
@@ -7736,7 +7756,7 @@ static void checkIsValidOpenCLKernelParameter(
       // do not allow OpenCL objects to be passed as elements of the struct or
       // union.
       if (ParamType == PtrKernelParam || ParamType == PtrPtrKernelParam ||
-          ParamType == PrivatePtrKernelParam) {
+          ParamType == InvalidAddrSpacePtrKernelParam) {
         S.Diag(Param->getLocation(),
                diag::err_record_with_pointers_kernel_param)
           << PT->isUnionType()
@@ -7766,6 +7786,28 @@ static void checkIsValidOpenCLKernelParameter(
       return;
     }
   } while (!VisitStack.empty());
+}
+
+/// Find the DeclContext in which a tag is implicitly declared if we see an
+/// elaborated type specifier in the specified context, and lookup finds
+/// nothing.
+static DeclContext *getTagInjectionContext(DeclContext *DC) {
+  while (!DC->isFileContext() && !DC->isFunctionOrMethod())
+    DC = DC->getParent();
+  return DC;
+}
+
+/// Find the Scope in which a tag is implicitly declared if we see an
+/// elaborated type specifier in the specified context, and lookup finds
+/// nothing.
+static Scope *getTagInjectionScope(Scope *S, const LangOptions &LangOpts) {
+  while (S->isClassScope() ||
+         (LangOpts.CPlusPlus &&
+          S->isFunctionPrototypeScope()) ||
+         ((S->getFlags() & Scope::DeclScope) == 0) ||
+         (S->getEntity() && S->getEntity()->isTransparentContext()))
+    S = S->getParent();
+  return S;
 }
 
 NamedDecl*
@@ -8244,15 +8286,37 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
     }
 
     if (!getLangOpts().CPlusPlus) {
-      // In C, find all the non-parameter declarations from the prototype and
-      // move them into the new function decl context as well. Typically they
-      // will have been added to the surrounding context of the prototype.
+      // In C, find all the tag declarations from the prototype and move them
+      // into the function DeclContext. Remove them from the surrounding tag
+      // injection context of the function, which is typically but not always
+      // the TU.
+      DeclContext *PrototypeTagContext =
+          getTagInjectionContext(NewFD->getLexicalDeclContext());
       for (NamedDecl *NonParmDecl : FTI.getDeclsInPrototype()) {
-        DeclContext *OldDC = NonParmDecl->getDeclContext();
-        if (OldDC->containsDecl(NonParmDecl))
-          OldDC->removeDecl(NonParmDecl);
-        NonParmDecl->setDeclContext(NewFD);
-        NewFD->addDecl(NonParmDecl);
+        auto *TD = dyn_cast<TagDecl>(NonParmDecl);
+
+        // We don't want to reparent enumerators. Look at their parent enum
+        // instead.
+        if (!TD) {
+          if (auto *ECD = dyn_cast<EnumConstantDecl>(NonParmDecl))
+            TD = cast<EnumDecl>(ECD->getDeclContext());
+        }
+        if (!TD)
+          continue;
+        DeclContext *TagDC = TD->getLexicalDeclContext();
+        if (!TagDC->containsDecl(TD))
+          continue;
+        TagDC->removeDecl(TD);
+        TD->setDeclContext(NewFD);
+        NewFD->addDecl(TD);
+
+        // Preserve the lexical DeclContext if it is not the surrounding tag
+        // injection context of the FD. In this example, the semantic context of
+        // E will be f and the lexical context will be S, while both the
+        // semantic and lexical contexts of S will be f:
+        //   void f(struct S { enum E { a } f; } s);
+        if (TagDC != PrototypeTagContext)
+          TD->setLexicalDeclContext(TagDC);
       }
     }
   } else if (const FunctionProtoType *FT = R->getAs<FunctionProtoType>()) {
@@ -9029,27 +9093,16 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
       ASTContext::GetBuiltinTypeError Error;
       LookupPredefedObjCSuperType(*this, S, NewFD->getIdentifier());
       QualType T = Context.GetBuiltinType(BuiltinID, Error);
-      if (!T.isNull() && !Context.hasSameType(T, NewFD->getType())) {
-        auto WithoutExceptionSpec = [&](QualType T) -> QualType {
-          auto *Proto = T->getAs<FunctionProtoType>();
-          if (!Proto)
-            return T;
-          return Context.getFunctionType(
-              Proto->getReturnType(), Proto->getParamTypes(),
-              Proto->getExtProtoInfo().withExceptionSpec(EST_None));
-        };
-
-        // If the type of the builtin differs only in its exception
-        // specification, that's OK.
-        // FIXME: If the types do differ in this way, it would be better to
-        // retain the 'noexcept' form of the type.
-        if (!getLangOpts().CPlusPlus1z ||
-            !Context.hasSameType(WithoutExceptionSpec(T),
-                                 WithoutExceptionSpec(NewFD->getType())))
-          // The type of this function differs from the type of the builtin,
-          // so forget about the builtin entirely.
-          Context.BuiltinInfo.forgetBuiltin(BuiltinID, Context.Idents);
-      }
+      // If the type of the builtin differs only in its exception
+      // specification, that's OK.
+      // FIXME: If the types do differ in this way, it would be better to
+      // retain the 'noexcept' form of the type.
+      if (!T.isNull() &&
+          !Context.hasSameFunctionTypeIgnoringExceptionSpec(T,
+                                                            NewFD->getType()))
+        // The type of this function differs from the type of the builtin,
+        // so forget about the builtin entirely.
+        Context.BuiltinInfo.forgetBuiltin(BuiltinID, Context.Idents);
     }
 
     // If this function is declared as being extern "C", then check to see if
@@ -9650,9 +9703,6 @@ QualType Sema::deduceVarTypeFromInitializer(VarDecl *VDecl,
 
   VarDeclOrName VN{VDecl, Name};
 
-  // FIXME: Deduction for a decomposition declaration does weird things if the
-  // initializer is an array.
-
   ArrayRef<Expr *> DeduceInits = Init;
   if (DirectInit) {
     if (auto *PL = dyn_cast<ParenListExpr>(Init))
@@ -9701,6 +9751,15 @@ QualType Sema::deduceVarTypeFromInitializer(VarDecl *VDecl,
     DefaultedAnyToId = true;
   }
 
+  // C++ [dcl.decomp]p1:
+  //   If the assignment-expression [...] has array type A and no ref-qualifier
+  //   is present, e has type cv A
+  if (VDecl && isa<DecompositionDecl>(VDecl) &&
+      Context.hasSameUnqualifiedType(Type, Context.getAutoDeductType()) &&
+      DeduceInit->getType()->isConstantArrayType())
+    return Context.getQualifiedType(DeduceInit->getType(),
+                                    Type.getQualifiers());
+
   QualType DeducedType;
   if (DeduceAutoType(TSI, DeduceInit, DeducedType) == DAR_Failed) {
     if (!IsInitCapture)
@@ -9737,8 +9796,7 @@ QualType Sema::deduceVarTypeFromInitializer(VarDecl *VDecl,
 /// AddInitializerToDecl - Adds the initializer Init to the
 /// declaration dcl. If DirectInit is true, this is C++ direct
 /// initialization rather than copy initialization.
-void Sema::AddInitializerToDecl(Decl *RealDecl, Expr *Init,
-                                bool DirectInit, bool TypeMayContainAuto) {
+void Sema::AddInitializerToDecl(Decl *RealDecl, Expr *Init, bool DirectInit) {
   // If there is no declaration, there was an error parsing it.  Just ignore
   // the initializer.
   if (!RealDecl || RealDecl->isInvalidDecl()) {
@@ -9763,7 +9821,7 @@ void Sema::AddInitializerToDecl(Decl *RealDecl, Expr *Init,
   }
 
   // C++11 [decl.spec.auto]p6. Deduce the type which 'auto' stands in for.
-  if (TypeMayContainAuto && VDecl->getType()->isUndeducedType()) {
+  if (VDecl->getType()->isUndeducedType()) {
     // Attempt typo correction early so that the type of the init expression can
     // be deduced based on the chosen correction if the original init contains a
     // TypoExpr.
@@ -10235,8 +10293,7 @@ bool Sema::canInitializeWithParenthesizedList(QualType TargetType) {
          TargetType->getContainedAutoType();
 }
 
-void Sema::ActOnUninitializedDecl(Decl *RealDecl,
-                                  bool TypeMayContainAuto) {
+void Sema::ActOnUninitializedDecl(Decl *RealDecl) {
   // If there is no declaration, there was an error parsing it. Just ignore it.
   if (!RealDecl)
     return;
@@ -10252,7 +10309,7 @@ void Sema::ActOnUninitializedDecl(Decl *RealDecl,
     }
 
     // C++11 [dcl.spec.auto]p3
-    if (TypeMayContainAuto && Type->getContainedAutoType()) {
+    if (Type->isUndeducedType()) {
       Diag(Var->getLocation(), diag::err_auto_var_requires_init)
         << Var->getDeclName() << Type;
       Var->setInvalidDecl();
@@ -11036,32 +11093,32 @@ Sema::DeclGroupPtrTy Sema::FinalizeDeclaratorGroup(Scope *S, const DeclSpec &DS,
     }
   }
 
-  return BuildDeclaratorGroup(Decls, DS.containsPlaceholderType());
+  return BuildDeclaratorGroup(Decls);
 }
 
 /// BuildDeclaratorGroup - convert a list of declarations into a declaration
 /// group, performing any necessary semantic checking.
 Sema::DeclGroupPtrTy
-Sema::BuildDeclaratorGroup(MutableArrayRef<Decl *> Group,
-                           bool TypeMayContainAuto) {
-  // C++0x [dcl.spec.auto]p7:
-  //   If the type deduced for the template parameter U is not the same in each
+Sema::BuildDeclaratorGroup(MutableArrayRef<Decl *> Group) {
+  // C++14 [dcl.spec.auto]p7: (DR1347)
+  //   If the type that replaces the placeholder type is not the same in each
   //   deduction, the program is ill-formed.
-  // FIXME: When initializer-list support is added, a distinction is needed
-  // between the deduced type U and the deduced type which 'auto' stands for.
-  //   auto a = 0, b = { 1, 2, 3 };
-  // is legal because the deduced type U is 'int' in both cases.
-  if (TypeMayContainAuto && Group.size() > 1) {
+  if (Group.size() > 1) {
     QualType Deduced;
     CanQualType DeducedCanon;
     VarDecl *DeducedDecl = nullptr;
     for (unsigned i = 0, e = Group.size(); i != e; ++i) {
       if (VarDecl *D = dyn_cast<VarDecl>(Group[i])) {
         AutoType *AT = D->getType()->getContainedAutoType();
+        // FIXME: DR1265: if we have a function pointer declaration, we can have
+        // an 'auto' from a trailing return type. In that case, the return type
+        // must match the various other uses of 'auto'.
+        if (!AT)
+          continue;
         // Don't reissue diagnostics when instantiating a template.
-        if (AT && D->isInvalidDecl())
+        if (D->isInvalidDecl())
           break;
-        QualType U = AT ? AT->getDeducedType() : QualType();
+        QualType U = AT->getDeducedType();
         if (!U.isNull()) {
           CanQualType UCanon = Context.getCanonicalType(U);
           if (Deduced.isNull()) {
@@ -12621,28 +12678,6 @@ static bool isAcceptableTagRedeclContext(Sema &S, DeclContext *OldDC,
     return true;
 
   return false;
-}
-
-/// Find the DeclContext in which a tag is implicitly declared if we see an
-/// elaborated type specifier in the specified context, and lookup finds
-/// nothing.
-static DeclContext *getTagInjectionContext(DeclContext *DC) {
-  while (!DC->isFileContext() && !DC->isFunctionOrMethod())
-    DC = DC->getParent();
-  return DC;
-}
-
-/// Find the Scope in which a tag is implicitly declared if we see an
-/// elaborated type specifier in the specified context, and lookup finds
-/// nothing.
-static Scope *getTagInjectionScope(Scope *S, const LangOptions &LangOpts) {
-  while (S->isClassScope() ||
-         (LangOpts.CPlusPlus &&
-          S->isFunctionPrototypeScope()) ||
-         ((S->getFlags() & Scope::DeclScope) == 0) ||
-         (S->getEntity() && S->getEntity()->isTransparentContext()))
-    S = S->getParent();
-  return S;
 }
 
 /// \brief This is invoked when we see 'struct foo' or 'struct {'.  In the

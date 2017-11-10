@@ -638,6 +638,9 @@ FormatStyle getChromiumStyle(FormatStyle::LanguageKind Language) {
     ChromiumStyle.BreakAfterJavaFieldAnnotations = true;
     ChromiumStyle.ContinuationIndentWidth = 8;
     ChromiumStyle.IndentWidth = 4;
+  } else if (Language == FormatStyle::LK_JavaScript) {
+    ChromiumStyle.AllowShortIfStatementsOnASingleLine = false;
+    ChromiumStyle.AllowShortLoopsOnASingleLine = false;
   } else {
     ChromiumStyle.AllowAllParametersOfDeclarationOnNextLine = false;
     ChromiumStyle.AllowShortFunctionsOnASingleLine = FormatStyle::SFS_Inline;
@@ -655,10 +658,12 @@ FormatStyle getMozillaStyle() {
   MozillaStyle.AllowAllParametersOfDeclarationOnNextLine = false;
   MozillaStyle.AllowShortFunctionsOnASingleLine = FormatStyle::SFS_Inline;
   MozillaStyle.AlwaysBreakAfterReturnType =
-      FormatStyle::RTBS_TopLevelDefinitions;
+      FormatStyle::RTBS_TopLevel;
   MozillaStyle.AlwaysBreakAfterDefinitionReturnType =
       FormatStyle::DRTBS_TopLevel;
   MozillaStyle.AlwaysBreakTemplateDeclarations = true;
+  MozillaStyle.BinPackParameters = false;
+  MozillaStyle.BinPackArguments = false;
   MozillaStyle.BreakBeforeBraces = FormatStyle::BS_Mozilla;
   MozillaStyle.BreakConstructorInitializersBeforeComma = true;
   MozillaStyle.ConstructorInitializerIndentWidth = 2;
@@ -842,9 +847,10 @@ private:
               Env.getSourceManager(), Start, Length, ReplacementText));
           // FIXME: handle error. For now, print error message and skip the
           // replacement for release version.
-          if (Err)
+          if (Err) {
             llvm::errs() << llvm::toString(std::move(Err)) << "\n";
-          assert(!Err);
+            assert(false);
+          }
         };
         Replace(Start, 1, IsSingle ? "'" : "\"");
         Replace(FormatTok->Tok.getEndLoc().getLocWithOffset(-1), 1,
@@ -1191,9 +1197,10 @@ private:
           Fixes.add(tooling::Replacement(Env.getSourceManager(), SR, ""));
       // FIXME: better error handling. for now just print error message and skip
       // for the release version.
-      if (Err)
+      if (Err) {
         llvm::errs() << llvm::toString(std::move(Err)) << "\n";
-      assert(!Err && "Fixes must not conflict!");
+        assert(false && "Fixes must not conflict!");
+      }
       Idx = End + 1;
     }
 
@@ -1325,9 +1332,10 @@ static void sortCppIncludes(const FormatStyle &Style,
       FileName, Includes.front().Offset, IncludesBlockSize, result));
   // FIXME: better error handling. For now, just skip the replacement for the
   // release version.
-  if (Err)
+  if (Err) {
     llvm::errs() << llvm::toString(std::move(Err)) << "\n";
-  assert(!Err);
+    assert(false);
+  }
 }
 
 namespace {
@@ -1543,7 +1551,7 @@ bool checkAndConsumeDirectiveWithName(Lexer &Lex, StringRef Name, Token &Tok) {
   bool Matched = Tok.is(tok::hash) && !Lex.LexFromRawLexer(Tok) &&
                  Tok.is(tok::raw_identifier) &&
                  Tok.getRawIdentifier() == Name && !Lex.LexFromRawLexer(Tok) &&
-                 tok::raw_identifier;
+                 Tok.is(tok::raw_identifier);
   if (Matched)
     Lex.LexFromRawLexer(Tok);
   return Matched;
@@ -1837,6 +1845,7 @@ LangOptions getFormattingLangOpts(const FormatStyle &Style) {
   LangOpts.CPlusPlus = 1;
   LangOpts.CPlusPlus11 = Style.Standard == FormatStyle::LS_Cpp03 ? 0 : 1;
   LangOpts.CPlusPlus14 = Style.Standard == FormatStyle::LS_Cpp03 ? 0 : 1;
+  LangOpts.CPlusPlus1z = Style.Standard == FormatStyle::LS_Cpp03 ? 0 : 1;
   LangOpts.LineComment = 1;
   bool AlternativeOperators = Style.Language == FormatStyle::LK_Cpp;
   LangOpts.CXXOperatorNames = AlternativeOperators ? 1 : 0;
@@ -1915,7 +1924,11 @@ FormatStyle getStyle(StringRef StyleName, StringRef FileName,
   // Look for .clang-format/_clang-format file in the file's parent directories.
   SmallString<128> UnsuitableConfigFiles;
   SmallString<128> Path(FileName);
-  llvm::sys::fs::make_absolute(Path);
+  if (std::error_code EC = FS->makeAbsolute(Path)) {
+    llvm::errs() << EC.message() << "\n";
+    return Style;
+  }
+
   for (StringRef Directory = Path; !Directory.empty();
        Directory = llvm::sys::path::parent_path(Directory)) {
 

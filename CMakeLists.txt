@@ -16,7 +16,8 @@ if( CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR )
       "--libdir"
       "--includedir"
       "--prefix"
-      "--src-root")
+      "--src-root"
+      "--cmakedir")
     execute_process(
       COMMAND ${CONFIG_COMMAND}
       RESULT_VARIABLE HAD_ERROR
@@ -41,6 +42,7 @@ if( CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR )
   list(GET CONFIG_OUTPUT 3 INCLUDE_DIR)
   list(GET CONFIG_OUTPUT 4 LLVM_OBJ_ROOT)
   list(GET CONFIG_OUTPUT 5 MAIN_SRC_DIR)
+  list(GET CONFIG_OUTPUT 6 LLVM_CONFIG_CMAKE_PATH)
 
   if(NOT MSVC_IDE)
     set(LLVM_ENABLE_ASSERTIONS ${ENABLE_ASSERTIONS}
@@ -55,10 +57,13 @@ if( CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR )
   set(LLVM_BINARY_DIR ${LLVM_OBJ_ROOT} CACHE PATH "Path to LLVM build tree")
   set(LLVM_MAIN_SRC_DIR ${MAIN_SRC_DIR} CACHE PATH "Path to LLVM source tree")
 
+  # Normalize LLVM_CMAKE_PATH. --cmakedir might contain backslashes.
+  # CMake assumes slashes as PATH.
+  file(TO_CMAKE_PATH ${LLVM_CONFIG_CMAKE_PATH} LLVM_CMAKE_PATH)
+
   find_program(LLVM_TABLEGEN_EXE "llvm-tblgen" ${LLVM_TOOLS_BINARY_DIR}
     NO_DEFAULT_PATH)
 
-  set(LLVM_CMAKE_PATH "${LLVM_BINARY_DIR}/lib${LLVM_LIBDIR_SUFFIX}/cmake/llvm")
   set(LLVMCONFIG_FILE "${LLVM_CMAKE_PATH}/LLVMConfig.cmake")
   if(EXISTS ${LLVMCONFIG_FILE})
     list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_PATH}")
@@ -197,6 +202,9 @@ set(ENABLE_LINKER_BUILD_ID OFF CACHE BOOL "pass --build-id to ld")
 
 set(ENABLE_X86_RELAX_RELOCATIONS OFF CACHE BOOL
     "enable x86 relax relocations by default")
+
+set(CLANG_DEFAULT_LINKER "" CACHE STRING
+  "Default linker to use (linker name or absolute path, empty for platform default)")
 
 set(CLANG_DEFAULT_CXX_STDLIB "" CACHE STRING
   "Default C++ stdlib to use (\"libstdc++\" or \"libc++\", empty for platform default")
@@ -418,6 +426,29 @@ else()
 endif()
 add_subdirectory(examples)
 
+if(APPLE)
+  # this line is needed as a cleanup to ensure that any CMakeCaches with the old
+  # default value get updated to the new default.
+  if(CLANG_ORDER_FILE STREQUAL "")
+    unset(CLANG_ORDER_FILE CACHE)
+    unset(CLANG_ORDER_FILE)
+  endif()
+
+
+  set(CLANG_ORDER_FILE ${CMAKE_CURRENT_BINARY_DIR}/clang.order CACHE FILEPATH
+    "Order file to use when compiling clang in order to improve startup time (Darwin Only - requires ld64).")
+
+  if(NOT EXISTS ${CLANG_ORDER_FILE})
+    string(FIND "${CLANG_ORDER_FILE}" "${CMAKE_CURRENT_BINARY_DIR}" PATH_START)
+    if(PATH_START EQUAL 0)
+      file(WRITE ${CLANG_ORDER_FILE} "\n")
+    else()
+      message(FATAL_ERROR "Specified order file '${CLANG_ORDER_FILE}' does not exist.")
+    endif()
+  endif()
+endif()
+
+
 if( CLANG_INCLUDE_TESTS )
   if(EXISTS ${LLVM_MAIN_SRC_DIR}/utils/unittest/googletest/include/gtest/gtest.h)
     add_subdirectory(unittests)
@@ -450,29 +481,6 @@ option(CLANG_INCLUDE_DOCS "Generate build targets for the Clang docs."
   ${LLVM_INCLUDE_DOCS})
 if( CLANG_INCLUDE_DOCS )
   add_subdirectory(docs)
-endif()
-
-
-if(APPLE)
-  # this line is needed as a cleanup to ensure that any CMakeCaches with the old
-  # default value get updated to the new default.
-  if(CLANG_ORDER_FILE STREQUAL "")
-    unset(CLANG_ORDER_FILE CACHE)
-    unset(CLANG_ORDER_FILE)
-  endif()
-
-
-  set(CLANG_ORDER_FILE ${CMAKE_CURRENT_BINARY_DIR}/clang.order CACHE FILEPATH
-    "Order file to use when compiling clang in order to improve startup time (Darwin Only - requires ld64).")
-
-  if(CLANG_ORDER_FILE AND NOT EXISTS ${CLANG_ORDER_FILE})
-    string(FIND "${CLANG_ORDER_FILE}" "${CMAKE_CURRENT_BINARY_DIR}" PATH_START)
-    if(PATH_START EQUAL 0)
-      file(WRITE ${CLANG_ORDER_FILE} "\n")
-    else()
-      message(FATAL_ERROR "Specified order file '${CLANG_ORDER_FILE}' does not exist.")
-    endif()
-  endif()
 endif()
 
 add_subdirectory(cmake/modules)

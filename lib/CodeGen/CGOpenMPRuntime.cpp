@@ -99,10 +99,11 @@ class CGOpenMPOutlinedRegionInfo final : public CGOpenMPRegionInfo {
 public:
   CGOpenMPOutlinedRegionInfo(const CapturedStmt &CS, const VarDecl *ThreadIDVar,
                              const RegionCodeGenTy &CodeGen,
-                             OpenMPDirectiveKind Kind, bool HasCancel)
+                             OpenMPDirectiveKind Kind, bool HasCancel,
+                             StringRef HelperName)
       : CGOpenMPRegionInfo(CS, ParallelOutlinedRegion, CodeGen, Kind,
                            HasCancel),
-        ThreadIDVar(ThreadIDVar) {
+        ThreadIDVar(ThreadIDVar), HelperName(HelperName) {
     assert(ThreadIDVar != nullptr && "No ThreadID in OpenMP region.");
   }
 
@@ -111,7 +112,7 @@ public:
   const VarDecl *getThreadIDVariable() const override { return ThreadIDVar; }
 
   /// \brief Get the name of the capture helper.
-  StringRef getHelperName() const override { return ".omp_outlined."; }
+  StringRef getHelperName() const override { return HelperName; }
 
   static bool classof(const CGCapturedStmtInfo *Info) {
     return CGOpenMPRegionInfo::classof(Info) &&
@@ -123,6 +124,7 @@ private:
   /// \brief A variable or parameter storing global thread id for OpenMP
   /// constructs.
   const VarDecl *ThreadIDVar;
+  StringRef HelperName;
 };
 
 /// \brief API for captured statement code generation in OpenMP constructs.
@@ -757,6 +759,7 @@ emitCombinerOrInitializer(CodeGenModule &CGM, QualType Ty,
       FnTy, llvm::GlobalValue::InternalLinkage,
       IsCombiner ? ".omp_combiner." : ".omp_initializer.", &CGM.getModule());
   CGM.SetInternalFunctionAttributes(/*D=*/nullptr, Fn, FnInfo);
+  Fn->removeFnAttr(llvm::Attribute::NoInline);
   Fn->addFnAttr(llvm::Attribute::AlwaysInline);
   CodeGenFunction CGF(CGM);
   // Map "T omp_in;" variable to "*omp_in_parm" value in all expressions.
@@ -854,7 +857,7 @@ llvm::Value *CGOpenMPRuntime::emitParallelOrTeamsOutlinedFunction(
   else if (auto *OPFD = dyn_cast<OMPParallelForDirective>(&D))
     HasCancel = OPFD->hasCancel();
   CGOpenMPOutlinedRegionInfo CGInfo(*CS, ThreadIDVar, CodeGen, InnermostKind,
-                                    HasCancel);
+                                    HasCancel, getOutlinedHelperName());
   CodeGenFunction::CGCapturedStmtRAII CapInfoRAII(CGF, &CGInfo);
   return CGF.GenerateOpenMPCapturedStmtFunction(*CS);
 }
@@ -1891,9 +1894,9 @@ llvm::Function *CGOpenMPRuntime::emitThreadPrivateVarDefinition(
 /// } else {
 ///   ElseGen();
 /// }
-static void emitOMPIfClause(CodeGenFunction &CGF, const Expr *Cond,
-                            const RegionCodeGenTy &ThenGen,
-                            const RegionCodeGenTy &ElseGen) {
+void CGOpenMPRuntime::emitOMPIfClause(CodeGenFunction &CGF, const Expr *Cond,
+                                      const RegionCodeGenTy &ThenGen,
+                                      const RegionCodeGenTy &ElseGen) {
   CodeGenFunction::LexicalScope ConditionScope(CGF, Cond->getSourceRange());
 
   // If the condition constant folds and can be elided, try to avoid emitting
@@ -2700,14 +2703,16 @@ void CGOpenMPRuntime::OffloadEntriesInfoManagerTy::
                                              "only required for the device "
                                              "code generation.");
   OffloadEntriesTargetRegion[DeviceID][FileID][ParentName][LineNum] =
-      OffloadEntryInfoTargetRegion(Order, /*Addr=*/nullptr, /*ID=*/nullptr);
+      OffloadEntryInfoTargetRegion(Order, /*Addr=*/nullptr, /*ID=*/nullptr,
+                                   /*Flags=*/0);
   ++OffloadingEntriesNum;
 }
 
 void CGOpenMPRuntime::OffloadEntriesInfoManagerTy::
     registerTargetRegionEntryInfo(unsigned DeviceID, unsigned FileID,
                                   StringRef ParentName, unsigned LineNum,
-                                  llvm::Constant *Addr, llvm::Constant *ID) {
+                                  llvm::Constant *Addr, llvm::Constant *ID,
+                                  int32_t Flags) {
   // If we are emitting code for a target, the entry is already initialized,
   // only has to be registered.
   if (CGM.getLangOpts().OpenMPIsDevice) {
@@ -2718,9 +2723,10 @@ void CGOpenMPRuntime::OffloadEntriesInfoManagerTy::
     assert(Entry.isValid() && "Entry not initialized!");
     Entry.setAddress(Addr);
     Entry.setID(ID);
+    Entry.setFlags(Flags);
     return;
   } else {
-    OffloadEntryInfoTargetRegion Entry(OffloadingEntriesNum++, Addr, ID);
+    OffloadEntryInfoTargetRegion Entry(OffloadingEntriesNum++, Addr, ID, Flags);
     OffloadEntriesTargetRegion[DeviceID][FileID][ParentName][LineNum] = Entry;
   }
 }
@@ -2887,7 +2893,8 @@ CGOpenMPRuntime::createOffloadingBinaryDescriptorRegistration() {
 }
 
 void CGOpenMPRuntime::createOffloadEntry(llvm::Constant *ID,
-                                         llvm::Constant *Addr, uint64_t Size) {
+                                         llvm::Constant *Addr, uint64_t Size,
+                                         int32_t Flags) {
   StringRef Name = Addr->getName();
   auto *TgtOffloadEntryType = cast<llvm::StructType>(
       CGM.getTypes().ConvertTypeForMem(getTgtOffloadEntryQTy()));
@@ -2917,6 +2924,8 @@ void CGOpenMPRuntime::createOffloadEntry(llvm::Constant *ID,
   EntryInit.add(AddrPtr);
   EntryInit.add(StrPtr);
   EntryInit.addInt(CGM.SizeTy, Size);
+  EntryInit.addInt(CGM.Int32Ty, Flags);
+  EntryInit.addInt(CGM.Int32Ty, 0);
   llvm::GlobalVariable *Entry =
     EntryInit.finishAndCreateGlobal(".omp_offloading.entry",
                                     Align,
@@ -3089,6 +3098,8 @@ QualType CGOpenMPRuntime::getTgtOffloadEntryQTy() {
   //                          // (function or global)
   //   char      *name;       // Name of the function or global.
   //   size_t     size;       // Size of the entry info (0 if it a function).
+  //   int32_t    flags;      // Flags associated with the entry, e.g. 'link'.
+  //   int32_t    reserved;   // Reserved, to use by the runtime library.
   // };
   if (TgtOffloadEntryQTy.isNull()) {
     ASTContext &C = CGM.getContext();
@@ -3097,6 +3108,10 @@ QualType CGOpenMPRuntime::getTgtOffloadEntryQTy() {
     addFieldToRecordDecl(C, RD, C.VoidPtrTy);
     addFieldToRecordDecl(C, RD, C.getPointerType(C.CharTy));
     addFieldToRecordDecl(C, RD, C.getSizeType());
+    addFieldToRecordDecl(
+        C, RD, C.getIntTypeForBitwidth(/*DestWidth=*/32, /*Signed=*/true));
+    addFieldToRecordDecl(
+        C, RD, C.getIntTypeForBitwidth(/*DestWidth=*/32, /*Signed=*/true));
     RD->completeDefinition();
     TgtOffloadEntryQTy = C.getRecordType(RD);
   }
@@ -3472,6 +3487,7 @@ emitTaskPrivateMappingFunction(CodeGenModule &CGM, SourceLocation Loc,
       ".omp_task_privates_map.", &CGM.getModule());
   CGM.SetInternalFunctionAttributes(/*D=*/nullptr, TaskPrivatesMap,
                                     TaskPrivatesMapFnInfo);
+  TaskPrivatesMap->removeFnAttr(llvm::Attribute::NoInline);
   TaskPrivatesMap->addFnAttr(llvm::Attribute::AlwaysInline);
   CodeGenFunction CGF(CGM);
   CGF.disableDebugInfo();
@@ -4681,7 +4697,9 @@ void CGOpenMPRuntime::emitCancellationPointCall(
   // global_tid, kmp_int32 cncl_kind);
   if (auto *OMPRegionInfo =
           dyn_cast_or_null<CGOpenMPRegionInfo>(CGF.CapturedStmtInfo)) {
-    if (OMPRegionInfo->hasCancel()) {
+    // For 'cancellation point taskgroup', the task region info may not have a
+    // cancel. This may instead happen in another adjacent task.
+    if (CancelRegion == OMPD_taskgroup || OMPRegionInfo->hasCancel()) {
       llvm::Value *Args[] = {
           emitUpdateLocation(CGF, Loc), getThreadID(CGF, Loc),
           CGF.Builder.getInt32(getCancellationKind(CancelRegion))};
@@ -4689,7 +4707,6 @@ void CGOpenMPRuntime::emitCancellationPointCall(
       auto *Result = CGF.EmitRuntimeCall(
           createRuntimeFunction(OMPRTL__kmpc_cancellationpoint), Args);
       // if (__kmpc_cancellationpoint()) {
-      //  __kmpc_cancel_barrier();
       //   exit from construct;
       // }
       auto *ExitBB = CGF.createBasicBlock(".cancel.exit");
@@ -4697,8 +4714,6 @@ void CGOpenMPRuntime::emitCancellationPointCall(
       auto *Cmp = CGF.Builder.CreateIsNotNull(Result);
       CGF.Builder.CreateCondBr(Cmp, ExitBB, ContBB);
       CGF.EmitBlock(ExitBB);
-      // __kmpc_cancel_barrier();
-      emitBarrierCall(CGF, Loc, OMPD_unknown, /*EmitChecks=*/false);
       // exit from construct;
       auto CancelDest =
           CGF.getOMPCancelDestination(OMPRegionInfo->getDirectiveKind());
@@ -4727,7 +4742,6 @@ void CGOpenMPRuntime::emitCancelCall(CodeGenFunction &CGF, SourceLocation Loc,
       auto *Result = CGF.EmitRuntimeCall(
           RT.createRuntimeFunction(OMPRTL__kmpc_cancel), Args);
       // if (__kmpc_cancel()) {
-      //  __kmpc_cancel_barrier();
       //   exit from construct;
       // }
       auto *ExitBB = CGF.createBasicBlock(".cancel.exit");
@@ -4735,8 +4749,6 @@ void CGOpenMPRuntime::emitCancelCall(CodeGenFunction &CGF, SourceLocation Loc,
       auto *Cmp = CGF.Builder.CreateIsNotNull(Result);
       CGF.Builder.CreateCondBr(Cmp, ExitBB, ContBB);
       CGF.EmitBlock(ExitBB);
-      // __kmpc_cancel_barrier();
-      RT.emitBarrierCall(CGF, Loc, OMPD_unknown, /*EmitChecks=*/false);
       // exit from construct;
       auto CancelDest =
           CGF.getOMPCancelDestination(OMPRegionInfo->getDirectiveKind());
@@ -4850,7 +4862,8 @@ void CGOpenMPRuntime::emitTargetOutlinedFunctionHelper(
 
   // Register the information for the entry associated with this target region.
   OffloadEntriesInfoManager.registerTargetRegionEntryInfo(
-      DeviceID, FileID, ParentName, Line, OutlinedFn, OutlinedFnID);
+      DeviceID, FileID, ParentName, Line, OutlinedFn, OutlinedFnID,
+      /*Flags=*/0);
 }
 
 /// discard all CompoundStmts intervening between two constructs

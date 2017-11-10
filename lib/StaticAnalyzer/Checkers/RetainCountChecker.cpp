@@ -1773,10 +1773,10 @@ namespace {
       ID.AddPointer(Sym);
     }
 
-    PathDiagnosticPiece *VisitNode(const ExplodedNode *N,
-                                   const ExplodedNode *PrevN,
-                                   BugReporterContext &BRC,
-                                   BugReport &BR) override;
+    std::shared_ptr<PathDiagnosticPiece> VisitNode(const ExplodedNode *N,
+                                                   const ExplodedNode *PrevN,
+                                                   BugReporterContext &BRC,
+                                                   BugReport &BR) override;
 
     std::unique_ptr<PathDiagnosticPiece> getEndPath(BugReporterContext &BRC,
                                                     const ExplodedNode *N,
@@ -1899,10 +1899,9 @@ static bool isSynthesizedAccessor(const StackFrameContext *SFC) {
   return SFC->getAnalysisDeclContext()->isBodyAutosynthesized();
 }
 
-PathDiagnosticPiece *CFRefReportVisitor::VisitNode(const ExplodedNode *N,
-                                                   const ExplodedNode *PrevN,
-                                                   BugReporterContext &BRC,
-                                                   BugReport &BR) {
+std::shared_ptr<PathDiagnosticPiece>
+CFRefReportVisitor::VisitNode(const ExplodedNode *N, const ExplodedNode *PrevN,
+                              BugReporterContext &BRC, BugReport &BR) {
   // FIXME: We will eventually need to handle non-statement-based events
   // (__attribute__((cleanup))).
   if (!N->getLocation().getAs<StmtPoint>())
@@ -1990,11 +1989,23 @@ PathDiagnosticPiece *CFRefReportVisitor::VisitNode(const ExplodedNode *N,
       }
 
       if (CurrV.getObjKind() == RetEffect::CF) {
-        os << " returns a Core Foundation object with a ";
+        if (Sym->getType().isNull()) {
+          os << " returns a Core Foundation object with a ";
+        } else {
+          os << " returns a Core Foundation object of type "
+             << Sym->getType().getAsString() << " with a ";
+        }
       }
       else {
         assert (CurrV.getObjKind() == RetEffect::ObjC);
-        os << " returns an Objective-C object with a ";
+        QualType T = Sym->getType();
+        if (T.isNull() || !isa<ObjCObjectPointerType>(T)) {
+          os << " returns an Objective-C object with a ";
+        } else {
+          const ObjCObjectPointerType *PT = cast<ObjCObjectPointerType>(T);
+          os << " returns an instance of "
+             << PT->getPointeeType().getAsString() << " with a ";
+        }
       }
 
       if (CurrV.isOwned()) {
@@ -2014,7 +2025,7 @@ PathDiagnosticPiece *CFRefReportVisitor::VisitNode(const ExplodedNode *N,
 
     PathDiagnosticLocation Pos(S, BRC.getSourceManager(),
                                   N->getLocationContext());
-    return new PathDiagnosticEventPiece(Pos, os.str());
+    return std::make_shared<PathDiagnosticEventPiece>(Pos, os.str());
   }
 
   // Gather up the effects that were performed on the object at this
@@ -2191,7 +2202,7 @@ PathDiagnosticPiece *CFRefReportVisitor::VisitNode(const ExplodedNode *N,
   const Stmt *S = N->getLocation().castAs<StmtPoint>().getStmt();
   PathDiagnosticLocation Pos(S, BRC.getSourceManager(),
                                 N->getLocationContext());
-  PathDiagnosticPiece *P = new PathDiagnosticEventPiece(Pos, os.str());
+  auto P = std::make_shared<PathDiagnosticEventPiece>(Pos, os.str());
 
   // Add the range by scanning the children of the statement for any bindings
   // to Sym.
@@ -2202,7 +2213,7 @@ PathDiagnosticPiece *CFRefReportVisitor::VisitNode(const ExplodedNode *N,
         break;
       }
 
-  return P;
+  return std::move(P);
 }
 
 namespace {

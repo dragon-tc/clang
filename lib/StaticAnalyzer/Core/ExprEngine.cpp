@@ -507,7 +507,7 @@ void ExprEngine::ProcessInitializer(const CFGInitializer Init,
       }
 
       SVal InitVal;
-      if (BMI->getNumArrayIndices() > 0) {
+      if (Init->getType()->isArrayType()) {
         // Handle arrays of trivial type. We can represent this with a
         // primitive load/copy from the base array region.
         const ArraySubscriptExpr *ASE;
@@ -515,8 +515,9 @@ void ExprEngine::ProcessInitializer(const CFGInitializer Init,
           Init = ASE->getBase()->IgnoreImplicit();
 
         SVal LValue = State->getSVal(Init, stackFrame);
-        if (Optional<Loc> LValueLoc = LValue.getAs<Loc>())
-          InitVal = State->getSVal(*LValueLoc);
+        if (!Field->getType()->isReferenceType())
+          if (Optional<Loc> LValueLoc = LValue.getAs<Loc>())
+            InitVal = State->getSVal(*LValueLoc);
 
         // If we fail to get the value for some reason, use a symbolic value.
         if (InitVal.isUnknownOrUndef()) {
@@ -866,6 +867,11 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
     case Stmt::OMPTeamsDistributeSimdDirectiveClass:
     case Stmt::OMPTeamsDistributeParallelForSimdDirectiveClass:
     case Stmt::OMPTeamsDistributeParallelForDirectiveClass:
+    case Stmt::OMPTargetTeamsDirectiveClass:
+    case Stmt::OMPTargetTeamsDistributeDirectiveClass:
+    case Stmt::OMPTargetTeamsDistributeParallelForDirectiveClass:
+    case Stmt::OMPTargetTeamsDistributeParallelForSimdDirectiveClass:
+    case Stmt::OMPTargetTeamsDistributeSimdDirectiveClass:
       llvm_unreachable("Stmt should not be in analyzer evaluation loop");
 
     case Stmt::ObjCSubscriptRefExprClass:
@@ -1244,7 +1250,14 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
     case Expr::MaterializeTemporaryExprClass: {
       Bldr.takeNodes(Pred);
       const MaterializeTemporaryExpr *MTE = cast<MaterializeTemporaryExpr>(S);
-      CreateCXXTemporaryObject(MTE, Pred, Dst);
+      ExplodedNodeSet dstPrevisit;
+      getCheckerManager().runCheckersForPreStmt(dstPrevisit, Pred, MTE, *this);
+      ExplodedNodeSet dstExpr;
+      for (ExplodedNodeSet::iterator i = dstPrevisit.begin(),
+                                     e = dstPrevisit.end(); i != e ; ++i) {
+        CreateCXXTemporaryObject(MTE, *i, dstExpr);
+      }
+      getCheckerManager().runCheckersForPostStmt(Dst, dstExpr, MTE, *this);
       Bldr.addNodes(Dst);
       break;
     }

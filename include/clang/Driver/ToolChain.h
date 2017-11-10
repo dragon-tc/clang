@@ -105,7 +105,6 @@ private:
 
 protected:
   MultilibSet Multilibs;
-  const char *DefaultLinker = "ld";
 
   ToolChain(const Driver &D, const llvm::Triple &T,
             const llvm::opt::ArgList &Args);
@@ -139,6 +138,13 @@ public:
   const Driver &getDriver() const { return D; }
   vfs::FileSystem &getVFS() const;
   const llvm::Triple &getTriple() const { return Triple; }
+
+  /// Get the toolchain's aux triple, if it has one.
+  ///
+  /// Exactly what the aux triple represents depends on the toolchain, but for
+  /// example when compiling CUDA code for the GPU, the triple might be NVPTX,
+  /// while the aux triple is the host (CPU) toolchain, e.g. x86-linux-gnu.
+  virtual const llvm::Triple *getAuxTriple() const { return nullptr; }
 
   llvm::Triple::ArchType getArch() const { return Triple.getArch(); }
   StringRef getArchName() const { return Triple.getArchName(); }
@@ -270,6 +276,11 @@ public:
   /// this tool chain (0=off, 1=on, 2=strong, 3=all).
   virtual unsigned GetDefaultStackProtectorLevel(bool KernelOrKext) const {
     return 0;
+  }
+
+  /// GetDefaultLinker - Get the default linker to use.
+  virtual const char *getDefaultLinker() const {
+    return "ld";
   }
 
   /// GetDefaultRuntimeLibType - Get the default runtime library variant to use.

@@ -566,6 +566,21 @@ struct ArrayRVal {
 };
 static_assert(ArrayRVal().elems[3].f() == 0, "");
 
+namespace CopyCtor {
+  struct A {
+    constexpr A() {}
+    constexpr A(const A &) {}
+  };
+  struct B {
+    A a;
+    int arr[10];
+  };
+  constexpr B b{{}, {1, 2, 3, 4, 5}};
+  constexpr B c = b;
+  static_assert(c.arr[2] == 3, "");
+  static_assert(c.arr[7] == 0, "");
+}
+
 constexpr int selfref[2][2][2] = {
   selfref[1][1][1] + 1, selfref[0][0][0] + 1,
   selfref[1][0][1] + 1, selfref[0][1][0] + 1,
@@ -1168,7 +1183,7 @@ constexpr int m1b = const_cast<const int&>(n1); // expected-error {{constant exp
 constexpr int m2b = const_cast<const int&>(n2); // expected-error {{constant expression}} expected-note {{read of volatile object 'n2'}}
 
 struct T { int n; };
-const T t = { 42 }; // expected-note {{declared here}}
+const T t = { 42 };
 
 constexpr int f(volatile int &&r) {
   return r; // expected-note {{read of volatile-qualified type 'volatile int'}}
@@ -1180,7 +1195,7 @@ struct S {
   int j : f(0); // expected-error {{constant expression}} expected-note {{in call to 'f(0)'}}
   int k : g(0); // expected-error {{constant expression}} expected-note {{temporary created here}} expected-note {{in call to 'g(0)'}}
   int l : n3; // expected-error {{constant expression}} expected-note {{read of non-const variable}}
-  int m : t.n; // expected-error {{constant expression}} expected-note {{read of non-constexpr variable}}
+  int m : t.n; // expected-warning{{width of bit-field 'm' (42 bits)}} expected-warning{{expression is not an integral constant expression}} expected-note{{read of non-constexpr variable 't' is not allowed}}
 };
 
 }
@@ -1710,7 +1725,7 @@ namespace AfterError {
   constexpr int error() { // expected-error {{no return statement}}
     return foobar; // expected-error {{undeclared identifier}}
   }
-  constexpr int k = error(); // expected-error {{must be initialized by a constant expression}}
+  constexpr int k = error();
 }
 
 namespace std {
@@ -1887,9 +1902,9 @@ namespace ZeroSizeTypes {
 namespace BadDefaultInit {
   template<int N> struct X { static const int n = N; };
 
-  struct A { // expected-error {{default member initializer for 'k' needed within definition of enclosing class}}
+  struct A {
     int k = // expected-note {{default member initializer declared here}}
-        X<A().k>::n; // expected-error {{not a constant expression}} expected-note {{implicit default constructor for 'BadDefaultInit::A' first required here}}
+        X<A().k>::n; // expected-error {{default member initializer for 'k' needed within definition of enclosing class}}
   };
 
   // FIXME: The "constexpr constructor must initialize all members" diagnostic
@@ -2015,7 +2030,7 @@ namespace PR21786 {
 
 namespace PR21859 {
   constexpr int Fun() { return; } // expected-error {{non-void constexpr function 'Fun' should return a value}}
-  constexpr int Var = Fun(); // expected-error {{constexpr variable 'Var' must be initialized by a constant expression}}
+  constexpr int Var = Fun();
 }
 
 struct InvalidRedef {

@@ -1531,7 +1531,7 @@ bool Generic_GCC::GCCInstallationDetector::getBiarchSibling(Multilib &M) const {
   static const char *const AArch64LibDirs[] = {"/lib64", "/lib"};
   static const char *const AArch64Triples[] = {
       "aarch64-none-linux-gnu", "aarch64-linux-gnu", "aarch64-linux-android",
-      "aarch64-redhat-linux"};
+      "aarch64-redhat-linux", "aarch64-suse-linux"};
   static const char *const AArch64beLibDirs[] = {"/lib"};
   static const char *const AArch64beTriples[] = {"aarch64_be-none-linux-gnu",
                                                  "aarch64_be-linux-gnu"};
@@ -1805,19 +1805,26 @@ static CudaVersion ParseCudaVersionFile(llvm::StringRef V) {
 }
 
 CudaInstallationDetector::CudaInstallationDetector(
-    const Driver &D, const llvm::Triple &TargetTriple,
+    const Driver &D, const llvm::Triple &HostTriple,
     const llvm::opt::ArgList &Args)
     : D(D) {
   SmallVector<std::string, 4> CudaPathCandidates;
 
-  if (Args.hasArg(options::OPT_cuda_path_EQ))
+  // In decreasing order so we prefer newer versions to older versions.
+  std::initializer_list<const char *> Versions = {"8.0", "7.5", "7.0"};
+
+  if (Args.hasArg(options::OPT_cuda_path_EQ)) {
     CudaPathCandidates.push_back(
         Args.getLastArgValue(options::OPT_cuda_path_EQ));
-  else {
+  } else if (HostTriple.isOSWindows()) {
+    for (const char *Ver : Versions)
+      CudaPathCandidates.push_back(
+          D.SysRoot + "/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v" +
+          Ver);
+  } else {
     CudaPathCandidates.push_back(D.SysRoot + "/usr/local/cuda");
-    CudaPathCandidates.push_back(D.SysRoot + "/usr/local/cuda-8.0");
-    CudaPathCandidates.push_back(D.SysRoot + "/usr/local/cuda-7.5");
-    CudaPathCandidates.push_back(D.SysRoot + "/usr/local/cuda-7.0");
+    for (const char *Ver : Versions)
+      CudaPathCandidates.push_back(D.SysRoot + "/usr/local/cuda-" + Ver);
   }
 
   for (const auto &CudaPath : CudaPathCandidates) {
@@ -1840,7 +1847,7 @@ CudaInstallationDetector::CudaInstallationDetector(
     // It's sufficient for our purposes to be flexible: If both lib and lib64
     // exist, we choose whichever one matches our triple.  Otherwise, if only
     // lib exists, we use it.
-    if (TargetTriple.isArch64Bit() && FS.exists(InstallPath + "/lib64"))
+    if (HostTriple.isArch64Bit() && FS.exists(InstallPath + "/lib64"))
       LibPath = InstallPath + "/lib64";
     else if (FS.exists(InstallPath + "/lib"))
       LibPath = InstallPath + "/lib";
@@ -2879,7 +2886,15 @@ bool Generic_GCC::IsUnwindTablesDefault() const {
 }
 
 bool Generic_GCC::isPICDefault() const {
-  return getArch() == llvm::Triple::x86_64 && getTriple().isOSWindows();
+  switch (getArch()) {
+  case llvm::Triple::x86_64:
+    return getTriple().isOSWindows();
+  case llvm::Triple::ppc64:
+  case llvm::Triple::ppc64le:
+    return !getTriple().isOSBinFormatMachO() && !getTriple().isMacOSX();
+  default:
+    return false;
+  }
 }
 
 bool Generic_GCC::isPIEDefault() const { return false; }
@@ -3059,9 +3074,6 @@ MipsLLVMToolChain::MipsLLVMToolChain(const Driver &D,
   LibSuffix = tools::mips::getMipsABILibSuffix(Args, Triple);
   getFilePaths().clear();
   getFilePaths().push_back(computeSysRoot() + "/usr/lib" + LibSuffix);
-
-  // Use LLD by default.
-  DefaultLinker = "lld";
 }
 
 void MipsLLVMToolChain::AddClangSystemIncludeArgs(
@@ -3800,6 +3812,7 @@ ToolChain::CXXStdlibType NetBSD::GetDefaultCXXStdlibType() const {
   if (Major >= 7 || Major == 0) {
     switch (getArch()) {
     case llvm::Triple::aarch64:
+    case llvm::Triple::aarch64_be:
     case llvm::Triple::arm:
     case llvm::Triple::armeb:
     case llvm::Triple::thumb:
@@ -4749,9 +4762,6 @@ Fuchsia::Fuchsia(const Driver &D, const llvm::Triple &Triple,
 
   getFilePaths().push_back(D.SysRoot + "/lib");
   getFilePaths().push_back(D.ResourceDir + "/lib/fuchsia");
-
-  // Use LLD by default.
-  DefaultLinker = "lld";
 }
 
 Tool *Fuchsia::buildAssembler() const {
@@ -4868,7 +4878,7 @@ Tool *DragonFly::buildLinker() const {
 CudaToolChain::CudaToolChain(const Driver &D, const llvm::Triple &Triple,
                              const ToolChain &HostTC, const ArgList &Args)
     : ToolChain(D, Triple, Args), HostTC(HostTC),
-      CudaInstallation(D, Triple, Args) {
+      CudaInstallation(D, HostTC.getTriple(), Args) {
   if (CudaInstallation.isValid())
     getProgramPaths().push_back(CudaInstallation.getBinPath());
 }
@@ -5017,6 +5027,11 @@ SanitizerMask CudaToolChain::getSupportedSanitizers() const {
   // invocations often share the command line, so the device toolchain must
   // tolerate flags meant only for the host toolchain.
   return HostTC.getSupportedSanitizers();
+}
+
+VersionTuple CudaToolChain::computeMSVCVersion(const Driver *D,
+                                               const ArgList &Args) const {
+  return HostTC.computeMSVCVersion(D, Args);
 }
 
 /// XCore tool chain
@@ -5173,9 +5188,6 @@ WebAssembly::WebAssembly(const Driver &D, const llvm::Triple &Triple,
   assert(Triple.isArch32Bit() != Triple.isArch64Bit());
   getFilePaths().push_back(
       getDriver().SysRoot + "/lib" + (Triple.isArch32Bit() ? "32" : "64"));
-
-  // Use LLD by default.
-  DefaultLinker = "lld";
 }
 
 bool WebAssembly::IsMathErrnoDefault() const { return false; }
@@ -5319,3 +5331,12 @@ SanitizerMask Contiki::getSupportedSanitizers() const {
     Res |= SanitizerKind::SafeStack;
   return Res;
 }
+
+/// AVR Toolchain
+AVRToolChain::AVRToolChain(const Driver &D, const llvm::Triple &Triple,
+                           const ArgList &Args)
+  : Generic_ELF(D, Triple, Args) { }
+Tool *AVRToolChain::buildLinker() const {
+  return new tools::AVR::Linker(*this);
+}
+// End AVR
