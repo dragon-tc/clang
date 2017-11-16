@@ -120,7 +120,7 @@ void clang::ProcessWarningOptions(DiagnosticsEngine &Diags,
       if (Opt == "everything") {
         if (SetDiagnostic) {
           if (isPositive) {
-            Diags.setEnableAllWarnings(false);
+            Diags.setEnableAllWarnings(true);
           } else {
             Diags.setEnableAllWarnings(false);
             Diags.setSeverityForAll(Flavor, diag::Severity::Ignored);
@@ -128,7 +128,7 @@ void clang::ProcessWarningOptions(DiagnosticsEngine &Diags,
         }
         continue;
       }
-     
+      
       // -Werror/-Wno-error is a special case, not controlled by the option 
       // table. It also has the "specifier" form of -Werror=foo and -Werror-foo.
       if (Opt.startswith("error")) {
@@ -145,15 +145,15 @@ void clang::ProcessWarningOptions(DiagnosticsEngine &Diags,
         
         if (Specifier.empty()) {
           if (SetDiagnostic)
-            //Diags.setWarningsAsErrors(false);
+            Diags.setWarningsAsErrors(isPositive);
           continue;
         }
         
-        if (! SetDiagnostic) {
+        if (SetDiagnostic) {
           // Set the warning as error flag for this specifier.
-          //Diags.setDiagnosticGroupWarningAsError(Specifier, false);
-       // } else if (DiagIDs->getDiagnosticsInGroup(Flavor, Specifier, _Diags)) {
-          //EmitUnknownDiagWarning(Diags, Flavor, "-Werror=", Specifier);
+          Diags.setDiagnosticGroupWarningAsError(Specifier, isPositive);
+        } else if (DiagIDs->getDiagnosticsInGroup(Flavor, Specifier, _Diags)) {
+          EmitUnknownDiagWarning(Diags, Flavor, "-Werror=", Specifier);
         }
         continue;
       }
@@ -173,25 +173,25 @@ void clang::ProcessWarningOptions(DiagnosticsEngine &Diags,
 
         if (Specifier.empty()) {
           if (SetDiagnostic)
-           // Diags.setErrorsAsFatal(false);
+            Diags.setErrorsAsFatal(isPositive);
           continue;
         }
         
-        if (! SetDiagnostic) {
+        if (SetDiagnostic) {
           // Set the error as fatal flag for this specifier.
-          //Diags.setDiagnosticGroupErrorAsFatal(Specifier, false);
-        //} else if (DiagIDs->getDiagnosticsInGroup(Flavor, Specifier, _Diags)) {
-          //EmitUnknownDiagWarning(Diags, Flavor, "-Wfatal-errors=", Specifier);
+          Diags.setDiagnosticGroupErrorAsFatal(Specifier, isPositive);
+        } else if (DiagIDs->getDiagnosticsInGroup(Flavor, Specifier, _Diags)) {
+          EmitUnknownDiagWarning(Diags, Flavor, "-Wfatal-errors=", Specifier);
         }
         continue;
       }
       
       if (Report) {
-        //if (DiagIDs->getDiagnosticsInGroup(Flavor, Opt, _Diags))
-          //EmitUnknownDiagWarning(Diags, Flavor, isPositive ? "-W" : "-Wno-",
-          //                       Opt);
-      //} else {
-        //Diags.setSeverityForGroup(Flavor, Opt, Mapping);
+        if (DiagIDs->getDiagnosticsInGroup(Flavor, Opt, _Diags))
+          EmitUnknownDiagWarning(Diags, Flavor, isPositive ? "-W" : "-Wno-",
+                                 Opt);
+      } else {
+        Diags.setSeverityForGroup(Flavor, Opt, Mapping);
       }
     }
 
