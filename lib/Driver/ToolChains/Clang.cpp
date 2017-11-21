@@ -15,6 +15,7 @@
 #include "Arch/Sparc.h"
 #include "Arch/SystemZ.h"
 #include "Arch/X86.h"
+#include "AMDGPU.h"
 #include "CommonArgs.h"
 #include "Hexagon.h"
 #include "InputInfo.h"
@@ -278,23 +279,6 @@ static void getWebAssemblyTargetFeatures(const ArgList &Args,
   handleTargetFeaturesGroup(Args, Features, options::OPT_m_wasm_Features_Group);
 }
 
-static void getAMDGPUTargetFeatures(const Driver &D, const ArgList &Args,
-                                    std::vector<StringRef> &Features) {
-  if (const Arg *dAbi = Args.getLastArg(options::OPT_mamdgpu_debugger_abi)) {
-    StringRef value = dAbi->getValue();
-    if (value == "1.0") {
-      Features.push_back("+amdgpu-debugger-insert-nops");
-      Features.push_back("+amdgpu-debugger-reserve-regs");
-      Features.push_back("+amdgpu-debugger-emit-prologue");
-    } else {
-      D.Diag(diag::err_drv_clang_unsupported) << dAbi->getAsString(Args);
-    }
-  }
-
-  handleTargetFeaturesGroup(
-    Args, Features, options::OPT_m_amdgpu_Features_Group);
-}
-
 static void getTargetFeatures(const ToolChain &TC, const llvm::Triple &Triple,
                               const ArgList &Args, ArgStringList &CmdArgs,
                               bool ForAS) {
@@ -347,7 +331,7 @@ static void getTargetFeatures(const ToolChain &TC, const llvm::Triple &Triple,
     break;
   case llvm::Triple::r600:
   case llvm::Triple::amdgcn:
-    getAMDGPUTargetFeatures(D, Args, Features);
+    amdgpu::getAMDGPUTargetFeatures(D, Args, Features);
     break;
   }
 
@@ -1905,6 +1889,15 @@ static void CollectArgsForIntegratedAssembler(Compilation &C,
       switch (C.getDefaultToolChain().getArch()) {
       default:
         break;
+      case llvm::Triple::thumb:
+      case llvm::Triple::thumbeb:
+      case llvm::Triple::arm:
+      case llvm::Triple::armeb:
+        if (Value == "-mthumb")
+          // -mthumb has already been processed in ComputeLLVMTriple()
+          // recognize but skip over here.
+          continue;
+        break;
       case llvm::Triple::mips:
       case llvm::Triple::mipsel:
       case llvm::Triple::mips64:
@@ -3423,6 +3416,10 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-mpie-copy-relocations");
   }
 
+  if (Args.hasFlag(options::OPT_fno_plt, options::OPT_fplt, false)) {
+    CmdArgs.push_back("-fno-plt");
+  }
+
   // -fhosted is default.
   // TODO: Audit uses of KernelOrKext and see where it'd be more appropriate to
   // use Freestanding.
@@ -3557,7 +3554,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                     options::OPT_fno_unique_section_names, true))
     CmdArgs.push_back("-fno-unique-section-names");
 
-  Args.AddAllArgs(CmdArgs, options::OPT_finstrument_functions);
+  Args.AddLastArg(CmdArgs, options::OPT_finstrument_functions,
+                  options::OPT_finstrument_functions_after_inlining);
 
   addPGOAndCoverageFlags(C, D, Output, Args, CmdArgs);
 

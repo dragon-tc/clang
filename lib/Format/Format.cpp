@@ -466,7 +466,7 @@ template <> struct DocumentListTraits<std::vector<FormatStyle>> {
     if (Index >= Seq.size()) {
       assert(Index == Seq.size());
       FormatStyle Template;
-      if (Seq.size() > 0 && Seq[0].Language == FormatStyle::LK_None) {
+      if (!Seq.empty() && Seq[0].Language == FormatStyle::LK_None) {
         Template = Seq[0];
       } else {
         Template = *((const FormatStyle *)IO.getContext());
@@ -2084,6 +2084,11 @@ static FormatStyle::LanguageKind getLanguageByFileName(StringRef FileName) {
   if (FileName.endswith_lower(".proto") ||
       FileName.endswith_lower(".protodevel"))
     return FormatStyle::LK_Proto;
+  if (FileName.endswith_lower(".textpb") ||
+      FileName.endswith_lower(".pb.txt") ||
+      FileName.endswith_lower(".textproto") ||
+      FileName.endswith_lower(".asciipb"))
+    return FormatStyle::LK_TextProto;
   if (FileName.endswith_lower(".td"))
     return FormatStyle::LK_TableGen;
   return FormatStyle::LK_Cpp;
