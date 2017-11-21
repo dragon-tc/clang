@@ -542,6 +542,9 @@ void Sema::getUndefinedButUsed(
     // __attribute__((weakref)) is basically a definition.
     if (ND->hasAttr<WeakRefAttr>()) continue;
 
+    if (isa<CXXDeductionGuideDecl>(ND))
+      continue;
+
     if (FunctionDecl *FD = dyn_cast<FunctionDecl>(ND)) {
       if (FD->isDefined())
         continue;
@@ -850,7 +853,8 @@ void Sema::ActOnEndOfTranslationUnit() {
     emitAndClearUnusedLocalTypedefWarnings();
 
     // Modules don't need any of the checking below.
-    TUScope = nullptr;
+    if (!PP.isIncrementalProcessingEnabled())
+      TUScope = nullptr;
     return;
   }
 

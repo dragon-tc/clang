@@ -246,7 +246,9 @@ public:
   }
 
   void VisitValueDecl(const ValueDecl *D) {
-    AddQualType(D->getType());
+    if (!isa<FunctionDecl>(D)) {
+      AddQualType(D->getType());
+    }
     Inherited::VisitValueDecl(D);
   }
 
@@ -305,6 +307,8 @@ public:
       Hash.AddSubDecl(Param);
     }
 
+    AddQualType(D->getReturnType());
+
     Inherited::VisitFunctionDecl(D);
   }
 
@@ -350,6 +354,8 @@ bool ODRHash::isWhitelistedDecl(const Decl *D, const CXXRecordDecl *Parent) {
     default:
       return false;
     case Decl::AccessSpec:
+    case Decl::CXXConstructor:
+    case Decl::CXXDestructor:
     case Decl::CXXMethod:
     case Decl::Field:
     case Decl::Friend:
@@ -372,8 +378,12 @@ void ODRHash::AddCXXRecordDecl(const CXXRecordDecl *Record) {
   assert(Record && Record->hasDefinition() &&
          "Expected non-null record to be a definition.");
 
-  if (isa<ClassTemplateSpecializationDecl>(Record)) {
-    return;
+  const DeclContext *DC = Record;
+  while (DC) {
+    if (isa<ClassTemplateSpecializationDecl>(DC)) {
+      return;
+    }
+    DC = DC->getParent();
   }
 
   AddDecl(Record);

@@ -1174,13 +1174,12 @@ void Darwin::AddDeploymentTarget(DerivedArgList &Args) const {
   unsigned Major, Minor, Micro;
   bool HadExtra;
 
-  // iOS 10 is the maximum deployment target for 32-bit targets.
-  if (iOSVersion && getTriple().isArch32Bit() &&
-      Driver::GetReleaseVersion(iOSVersion->getValue(), Major, Minor, Micro,
-                                HadExtra) &&
-      Major > 10)
-    getDriver().Diag(diag::err_invalid_ios_deployment_target)
-        << iOSVersion->getAsString(Args);
+  // The iOS deployment target that is explicitly specified via a command line
+  // option or an environment variable.
+  std::string ExplicitIOSDeploymentTargetStr;
+
+  if (iOSVersion)
+    ExplicitIOSDeploymentTargetStr = iOSVersion->getAsString(Args);
 
   // Add a macro to differentiate between m(iphone|tv|watch)os-version-min=X.Y and
   // -m(iphone|tv|watch)simulator-version-min=X.Y.
@@ -1223,13 +1222,9 @@ void Darwin::AddDeploymentTarget(DerivedArgList &Args) const {
     if (char *env = ::getenv("WATCHOS_DEPLOYMENT_TARGET"))
       WatchOSTarget = env;
 
-    // iOS 10 is the maximum deployment target for 32-bit targets.
-    if (!iOSTarget.empty() && getTriple().isArch32Bit() &&
-        Driver::GetReleaseVersion(iOSTarget.c_str(), Major, Minor, Micro,
-                                  HadExtra) &&
-        Major > 10)
-      getDriver().Diag(diag::err_invalid_ios_deployment_target)
-          << std::string("IPHONEOS_DEPLOYMENT_TARGET=") + iOSTarget;
+    if (!iOSTarget.empty())
+      ExplicitIOSDeploymentTargetStr =
+          std::string("IPHONEOS_DEPLOYMENT_TARGET=") + iOSTarget;
 
     // If there is no command-line argument to specify the Target version and
     // no environment variable defined, see if we can set the default based
@@ -1262,28 +1257,58 @@ void Darwin::AddDeploymentTarget(DerivedArgList &Args) const {
       }
     }
 
-    // If no OSX or iOS target has been specified, try to guess platform
-    // from arch name and compute the version from the triple.
+    // If no OS targets have been specified, try to guess platform from -target
+    // or arch name and compute the version from the triple.
     if (OSXTarget.empty() && iOSTarget.empty() && TvOSTarget.empty() &&
         WatchOSTarget.empty()) {
-      StringRef MachOArchName = getMachOArchName(Args);
-      unsigned Major, Minor, Micro;
-      if (MachOArchName == "armv7" || MachOArchName == "armv7s" ||
-          MachOArchName == "arm64") {
-        getTriple().getiOSVersion(Major, Minor, Micro);
-        llvm::raw_string_ostream(iOSTarget) << Major << '.' << Minor << '.'
-                                            << Micro;
-      } else if (MachOArchName == "armv7k") {
-        getTriple().getWatchOSVersion(Major, Minor, Micro);
-        llvm::raw_string_ostream(WatchOSTarget) << Major << '.' << Minor << '.'
-                                                << Micro;
-      } else if (MachOArchName != "armv6m" && MachOArchName != "armv7m" &&
-                 MachOArchName != "armv7em") {
-        if (!getTriple().getMacOSXVersion(Major, Minor, Micro)) {
-          getDriver().Diag(diag::err_drv_invalid_darwin_version)
-              << getTriple().getOSName();
+      llvm::Triple::OSType OSTy = llvm::Triple::UnknownOS;
+
+      // Set the OSTy based on -target if -arch isn't present.
+      if (Args.hasArg(options::OPT_target) && !Args.hasArg(options::OPT_arch)) {
+        OSTy = getTriple().getOS();
+      } else {
+        StringRef MachOArchName = getMachOArchName(Args);
+        if (MachOArchName == "armv7" || MachOArchName == "armv7s" ||
+            MachOArchName == "arm64")
+          OSTy = llvm::Triple::IOS;
+        else if (MachOArchName == "armv7k")
+          OSTy = llvm::Triple::WatchOS;
+        else if (MachOArchName != "armv6m" && MachOArchName != "armv7m" &&
+                 MachOArchName != "armv7em")
+          OSTy = llvm::Triple::MacOSX;
+      }
+
+
+      if (OSTy != llvm::Triple::UnknownOS) {
+        unsigned Major, Minor, Micro;
+        std::string *OSTarget;
+
+        switch (OSTy) {
+        case llvm::Triple::Darwin:
+        case llvm::Triple::MacOSX:
+          if (!getTriple().getMacOSXVersion(Major, Minor, Micro))
+            getDriver().Diag(diag::err_drv_invalid_darwin_version)
+                << getTriple().getOSName();
+          OSTarget = &OSXTarget;
+          break;
+        case llvm::Triple::IOS:
+          getTriple().getiOSVersion(Major, Minor, Micro);
+          OSTarget = &iOSTarget;
+          break;
+        case llvm::Triple::TvOS:
+          getTriple().getOSVersion(Major, Minor, Micro);
+          OSTarget = &TvOSTarget;
+          break;
+        case llvm::Triple::WatchOS:
+          getTriple().getWatchOSVersion(Major, Minor, Micro);
+          OSTarget = &WatchOSTarget;
+          break;
+        default:
+          llvm_unreachable("Unexpected OS type");
+          break;
         }
-        llvm::raw_string_ostream(OSXTarget) << Major << '.' << Minor << '.'
+
+        llvm::raw_string_ostream(*OSTarget) << Major << '.' << Minor << '.'
                                             << Micro;
       }
     }
@@ -1363,12 +1388,19 @@ void Darwin::AddDeploymentTarget(DerivedArgList &Args) const {
         HadExtra || Major >= 100 || Minor >= 100 || Micro >= 100)
       getDriver().Diag(diag::err_drv_invalid_version_number)
           << iOSVersion->getAsString(Args);
-    // iOS 10 is the maximum deployment target for 32-bit targets. If the
-    // inferred deployment target is iOS 11 or later, set it to 10.99.
+    // For 32-bit targets, the deployment target for iOS has to be earlier than
+    // iOS 11.
     if (getTriple().isArch32Bit() && Major >= 11) {
-      Major = 10;
-      Minor = 99;
-      Micro = 99;
+      // If the deployment target is explicitly specified, print a diagnostic.
+      if (!ExplicitIOSDeploymentTargetStr.empty()) {
+        getDriver().Diag(diag::warn_invalid_ios_deployment_target)
+            << ExplicitIOSDeploymentTargetStr;
+      // Otherwise, set it to 10.99.99.
+      } else {
+        Major = 10;
+        Minor = 99;
+        Micro = 99;
+      }
     }
   } else if (Platform == TvOS) {
     if (!Driver::GetReleaseVersion(TvOSVersion->getValue(), Major, Minor,
@@ -1804,8 +1836,13 @@ Darwin::TranslateArgs(const DerivedArgList &Args, StringRef BoundArch,
   return DAL;
 }
 
-bool MachO::IsUnwindTablesDefault() const {
-  return getArch() == llvm::Triple::x86_64;
+bool MachO::IsUnwindTablesDefault(const ArgList &Args) const {
+  // Unwind tables are not emitted if -fno-exceptions is supplied (except when
+  // targeting x86_64).
+  return getArch() == llvm::Triple::x86_64 ||
+         (!UseSjLjExceptions(Args) &&
+          Args.hasFlag(options::OPT_fexceptions, options::OPT_fno_exceptions,
+                       true));
 }
 
 bool MachO::UseDwarfDebugFlags() const {

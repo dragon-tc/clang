@@ -73,9 +73,12 @@ Address CodeGenFunction::CreateTempAlloca(llvm::Type *Ty, CharUnits Align,
   // cast alloca to the default address space when necessary.
   if (CastToDefaultAddrSpace && getASTAllocaAddressSpace() != LangAS::Default) {
     auto DestAddrSpace = getContext().getTargetAddressSpace(LangAS::Default);
+    auto CurIP = Builder.saveIP();
+    Builder.SetInsertPoint(AllocaInsertPt);
     V = getTargetHooks().performAddrSpaceCast(
         *this, V, getASTAllocaAddressSpace(), LangAS::Default,
         Ty->getPointerTo(DestAddrSpace), /*non-null*/ true);
+    Builder.restoreIP(CurIP);
   }
 
   return Address(V, Align);
@@ -3052,7 +3055,9 @@ static llvm::Value *emitArraySubscriptGEP(CodeGenFunction &CGF,
                                           SourceLocation loc,
                                     const llvm::Twine &name = "arrayidx") {
   if (inbounds) {
-    return CGF.EmitCheckedInBoundsGEP(ptr, indices, signedIndices, loc, name);
+    return CGF.EmitCheckedInBoundsGEP(ptr, indices, signedIndices,
+                                      CodeGenFunction::NotSubtraction, loc,
+                                      name);
   } else {
     return CGF.Builder.CreateGEP(ptr, indices, name);
   }
@@ -3304,12 +3309,7 @@ static Address emitOMPArraySectionBase(CodeGenFunction &CGF, const Expr *Base,
 
 LValue CodeGenFunction::EmitOMPArraySectionExpr(const OMPArraySectionExpr *E,
                                                 bool IsLowerBound) {
-  QualType BaseTy;
-  if (auto *ASE =
-          dyn_cast<OMPArraySectionExpr>(E->getBase()->IgnoreParenImpCasts()))
-    BaseTy = OMPArraySectionExpr::getBaseOriginalType(ASE);
-  else
-    BaseTy = E->getBase()->getType();
+  QualType BaseTy = OMPArraySectionExpr::getBaseOriginalType(E->getBase());
   QualType ResultExprTy;
   if (auto *AT = getContext().getAsArrayType(BaseTy))
     ResultExprTy = AT->getElementType();
@@ -3614,8 +3614,9 @@ LValue CodeGenFunction::EmitLValueForField(LValue base,
     getFieldAlignmentSource(BaseInfo.getAlignmentSource());
   LValueBaseInfo FieldBaseInfo(fieldAlignSource, BaseInfo.getMayAlias());
 
+  QualType type = field->getType();
   const RecordDecl *rec = field->getParent();
-  if (rec->isUnion() || rec->hasAttr<MayAliasAttr>())
+  if (rec->isUnion() || rec->hasAttr<MayAliasAttr>() || type->isVectorType())
     FieldBaseInfo.setMayAlias(true);
   bool mayAlias = FieldBaseInfo.getMayAlias();
 
@@ -3640,7 +3641,6 @@ LValue CodeGenFunction::EmitLValueForField(LValue base,
     return LValue::MakeBitfield(Addr, Info, fieldType, FieldBaseInfo);
   }
 
-  QualType type = field->getType();
   Address addr = base.getAddress();
   unsigned cvr = base.getVRQualifiers();
   bool TBAAPath = CGM.getCodeGenOpts().StructPathTBAA;

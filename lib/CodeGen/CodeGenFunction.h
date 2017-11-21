@@ -1116,7 +1116,7 @@ private:
         auto IP = CGF.Builder.saveAndClearIP();
         CGF.EmitBlock(Stack.back().ExitBlock.getBlock());
         CodeGen(CGF);
-        CGF.EmitBranchThroughCleanup(Stack.back().ContBlock);
+        CGF.EmitBranch(Stack.back().ContBlock.getBlock());
         CGF.Builder.restoreIP(IP);
         Stack.back().HasBeenEmitted = true;
       }
@@ -2761,7 +2761,9 @@ public:
   /// and initializes them with the values according to OpenMP standard.
   ///
   /// \param D Directive (possibly) with the 'linear' clause.
-  void EmitOMPLinearClauseInit(const OMPLoopDirective &D);
+  /// \return true if at least one linear variable is found that should be
+  /// initialized with the value of the original variable, false otherwise.
+  bool EmitOMPLinearClauseInit(const OMPLoopDirective &D);
 
   typedef const llvm::function_ref<void(CodeGenFunction & /*CGF*/,
                                         llvm::Value * /*OutlinedFn*/,
@@ -3589,12 +3591,19 @@ public:
   /// nonnull, if \p LHS is marked _Nonnull.
   void EmitNullabilityCheck(LValue LHS, llvm::Value *RHS, SourceLocation Loc);
 
+  /// An enumeration which makes it easier to specify whether or not an
+  /// operation is a subtraction.
+  enum { NotSubtraction = false, IsSubtraction = true };
+
   /// Same as IRBuilder::CreateInBoundsGEP, but additionally emits a check to
   /// detect undefined behavior when the pointer overflow sanitizer is enabled.
   /// \p SignedIndices indicates whether any of the GEP indices are signed.
+  /// \p IsSubtraction indicates whether the expression used to form the GEP
+  /// is a subtraction.
   llvm::Value *EmitCheckedInBoundsGEP(llvm::Value *Ptr,
                                       ArrayRef<llvm::Value *> IdxList,
                                       bool SignedIndices,
+                                      bool IsSubtraction,
                                       SourceLocation Loc,
                                       const Twine &Name = "");
 

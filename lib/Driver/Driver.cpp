@@ -69,7 +69,6 @@
 #include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/Process.h"
 #include "llvm/Support/Program.h"
-#include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/raw_ostream.h"
 #include <map>
 #include <memory>
@@ -1193,10 +1192,6 @@ bool Driver::HandleImmediateArgs(const Compilation &C) {
   if (C.getArgs().hasArg(options::OPT__version)) {
     // Follow gcc behavior and use stdout for --version and stderr for -v.
     PrintVersion(C, llvm::outs());
-
-    // Print registered targets.
-    llvm::outs() << '\n';
-    llvm::TargetRegistry::printRegisteredTargetsForVersion(llvm::outs());
     return false;
   }
 
@@ -1275,6 +1270,13 @@ bool Driver::HandleImmediateArgs(const Compilation &C) {
       // we were requested to print out all option names that start with "-foo".
       // For example, "--autocomplete=-fsyn" is expanded to "-fsyntax-only".
       SuggestedCompletions = Opts->findByPrefix(PassedFlags, DisableFlags);
+
+      // We have to query the -W flags manually as they're not in the OptTable.
+      // TODO: Find a good way to add them to OptTable instead and them remove
+      // this code.
+      for (StringRef S : DiagnosticIDs::getDiagnosticFlags())
+        if (S.startswith(PassedFlags))
+          SuggestedCompletions.push_back(S);
     } else {
       // If the flag is in the form of "--autocomplete=foo,bar", we were
       // requested to print out all option values for "-foo" that start with
@@ -1292,7 +1294,7 @@ bool Driver::HandleImmediateArgs(const Compilation &C) {
     std::sort(SuggestedCompletions.begin(), SuggestedCompletions.end(),
               [](StringRef A, StringRef B) { return A.compare_lower(B) < 0; });
 
-    llvm::outs() << llvm::join(SuggestedCompletions, " ") << '\n';
+    llvm::outs() << llvm::join(SuggestedCompletions, "\n") << '\n';
     return false;
   }
 

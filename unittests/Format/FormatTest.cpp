@@ -333,6 +333,16 @@ TEST_F(FormatTest, RecognizesBinaryOperatorKeywords) {
   verifyFormat("x = (a) xor (b);");
 }
 
+TEST_F(FormatTest, RecognizesUnaryOperatorKeywords) {
+  verifyFormat("x = compl(a);");
+  verifyFormat("x = not(a);");
+  verifyFormat("x = bitand(a);");
+  // Unary operator must not be merged with the next identifier
+  verifyFormat("x = compl a;");
+  verifyFormat("x = not a;");
+  verifyFormat("x = bitand a;");
+}
+
 //===----------------------------------------------------------------------===//
 // Tests for control statements.
 //===----------------------------------------------------------------------===//
@@ -5340,6 +5350,7 @@ TEST_F(FormatTest, UnderstandsUsesOfStarAndAmp) {
   verifyFormat("x = *a(x) = *a(y);", Left);
   verifyFormat("for (;; *a = b) {\n}", Left);
   verifyFormat("return *this += 1;", Left);
+  verifyFormat("throw *x;", Left);
 
   verifyIndependentOfContext("a = *(x + y);");
   verifyIndependentOfContext("a = &(x + y);");
@@ -8849,6 +8860,16 @@ TEST_F(FormatTest, AlignConsecutiveDeclarations) {
                Alignment);
   Alignment.BinPackParameters = true;
   Alignment.ColumnLimit = 80;
+
+  // Bug 33507
+  Alignment.PointerAlignment = FormatStyle::PAS_Middle;
+  verifyFormat(
+      "auto found = range::find_if(vsProducts, [&](auto * aProduct) {\n"
+      "  static const Version verVs2017;\n"
+      "  return true;\n"
+      "});\n",
+      Alignment);
+  Alignment.PointerAlignment = FormatStyle::PAS_Right;
 }
 
 TEST_F(FormatTest, LinuxBraceBreaking) {
