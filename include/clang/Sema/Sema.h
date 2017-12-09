@@ -1555,7 +1555,7 @@ public:
   /// visible at the specified location.
   void makeMergedDefinitionVisible(NamedDecl *ND);
 
-  bool isModuleVisible(Module *M) { return VisibleModules.isVisible(M); }
+  bool isModuleVisible(const Module *M) { return VisibleModules.isVisible(M); }
 
   /// Determine whether a declaration is visible to name lookup.
   bool isVisible(const NamedDecl *D) {
@@ -7428,13 +7428,16 @@ public:
     unsigned PrevSFINAEErrors;
     bool PrevInNonInstantiationSFINAEContext;
     bool PrevAccessCheckingSFINAE;
+    bool PrevLastDiagnosticIgnored;
 
   public:
     explicit SFINAETrap(Sema &SemaRef, bool AccessCheckingSFINAE = false)
       : SemaRef(SemaRef), PrevSFINAEErrors(SemaRef.NumSFINAEErrors),
         PrevInNonInstantiationSFINAEContext(
                                       SemaRef.InNonInstantiationSFINAEContext),
-        PrevAccessCheckingSFINAE(SemaRef.AccessCheckingSFINAE)
+        PrevAccessCheckingSFINAE(SemaRef.AccessCheckingSFINAE),
+        PrevLastDiagnosticIgnored(
+            SemaRef.getDiagnostics().isLastDiagnosticIgnored())
     {
       if (!SemaRef.isSFINAEContext())
         SemaRef.InNonInstantiationSFINAEContext = true;
@@ -7446,6 +7449,8 @@ public:
       SemaRef.InNonInstantiationSFINAEContext
         = PrevInNonInstantiationSFINAEContext;
       SemaRef.AccessCheckingSFINAE = PrevAccessCheckingSFINAE;
+      SemaRef.getDiagnostics().setLastDiagnosticIgnored(
+          PrevLastDiagnosticIgnored);
     }
 
     /// \brief Determine whether any SFINAE errors have been trapped.
@@ -7785,11 +7790,6 @@ public:
                                      VarDecl *Var, bool Recursive = false,
                                      bool DefinitionRequired = false,
                                      bool AtEndOfTU = false);
-  void InstantiateStaticDataMemberDefinition(
-                                     SourceLocation PointOfInstantiation,
-                                     VarDecl *Var,
-                                     bool Recursive = false,
-                                     bool DefinitionRequired = false);
 
   void InstantiateMemInitializers(CXXConstructorDecl *New,
                                   const CXXConstructorDecl *Tmpl,
@@ -8535,6 +8535,10 @@ private:
                                         bool StrictlyPositive = true);
   /// Returns OpenMP nesting level for current directive.
   unsigned getOpenMPNestingLevel() const;
+
+  /// Adjusts the function scopes index for the target-based regions.
+  void adjustOpenMPTargetScopeIndex(unsigned &FunctionScopesIndex,
+                                    unsigned Level) const;
 
   /// Push new OpenMP function region for non-capturing function.
   void pushOpenMPFunctionRegion();
@@ -10455,7 +10459,8 @@ private:
   /// \brief Peform checks on a call of a function with argument_with_type_tag
   /// or pointer_with_type_tag attributes.
   void CheckArgumentWithTypeTag(const ArgumentWithTypeTagAttr *Attr,
-                                const Expr * const *ExprArgs);
+                                const ArrayRef<const Expr *> ExprArgs,
+                                SourceLocation CallSiteLoc);
 
   /// \brief Check if we are taking the address of a packed field
   /// as this may be a problem if the pointer value is dereferenced.
