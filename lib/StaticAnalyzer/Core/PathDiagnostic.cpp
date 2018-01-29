@@ -1185,6 +1185,9 @@ void PathDiagnostic::FullProfile(llvm::FoldingSetNodeID &ID) const {
 StackHintGenerator::~StackHintGenerator() {}
 
 std::string StackHintGeneratorForSymbol::getMessage(const ExplodedNode *N){
+  if (!N)
+    return getMessageForSymbolNotFound();
+
   ProgramPoint P = N->getLocation();
   CallExitEnd CExit = P.castAs<CallExitEnd>();
 
@@ -1193,9 +1196,6 @@ std::string StackHintGeneratorForSymbol::getMessage(const ExplodedNode *N){
   const CallExpr *CE = dyn_cast_or_null<CallExpr>(CallSite);
   if (!CE)
     return "";
-
-  if (!N)
-    return getMessageForSymbolNotFound();
 
   // Check if one of the parameters are set to the interesting symbol.
   unsigned ArgIndex = 0;
@@ -1211,6 +1211,9 @@ std::string StackHintGeneratorForSymbol::getMessage(const ExplodedNode *N){
 
     // Check if the parameter is a pointer to the symbol.
     if (Optional<loc::MemRegionVal> Reg = SV.getAs<loc::MemRegionVal>()) {
+      // Do not attempt to dereference void*.
+      if ((*I)->getType()->isVoidPointerType())
+        continue;
       SVal PSV = N->getState()->getSVal(Reg->getRegion());
       SymbolRef AS = PSV.getAsLocSymbol();
       if (AS == Sym) {
