@@ -239,6 +239,13 @@ if( CLANG_VENDOR )
   add_definitions( -DCLANG_VENDOR="${CLANG_VENDOR} " )
 endif()
 
+set(CLANG_TC_DATE "" CACHE STRING
+  "Build date of the toolchain for version string.")
+
+if(CLANG_TC_DATE)
+  add_definitions(-DCLANG_TC_DATE="${CLANG_TC_DATE}")
+endif()
+
 set(CLANG_REPOSITORY_STRING "" CACHE STRING
   "Vendor-specific text for showing the repository the source is taken from.")
 

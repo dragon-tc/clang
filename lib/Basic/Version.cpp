@@ -18,10 +18,6 @@
 #include <cstdlib>
 #include <cstring>
 
-#ifdef HAVE_SVN_VERSION_INC
-#  include "SVNVersion.inc"
-#endif
-
 namespace clang {
 
 std::string getClangRepositoryPath() {
@@ -90,28 +86,12 @@ std::string getLLVMRevision() {
 std::string getClangFullRepositoryVersion() {
   std::string buf;
   llvm::raw_string_ostream OS(buf);
-  std::string Path = getClangRepositoryPath();
-  std::string Revision = getClangRevision();
-  if (!Path.empty() || !Revision.empty()) {
-    OS << '(';
-    if (!Path.empty())
-      OS << Path;
-    if (!Revision.empty()) {
-      if (!Path.empty())
-        OS << ' ';
-      OS << Revision;
-    }
-    OS << ')';
-  }
-  // Support LLVM in a separate repository.
-  std::string LLVMRev = getLLVMRevision();
-  if (!LLVMRev.empty() && LLVMRev != Revision) {
-    OS << " (";
-    std::string LLVMRepo = getLLVMRepositoryPath();
-    if (!LLVMRepo.empty())
-      OS << LLVMRepo << ' ';
-    OS << LLVMRev << ')';
-  }
+#if defined(CLANG_TC_DATE)
+  std::string Revision = CLANG_TC_DATE;
+#else
+  std::string Revision = "nodate";
+#endif
+  OS << Revision;
   return OS.str();
 }
 
@@ -125,7 +105,7 @@ std::string getClangToolFullVersion(StringRef ToolName) {
 #ifdef CLANG_VENDOR
   OS << CLANG_VENDOR;
 #endif
-  OS << ToolName << " version " CLANG_VERSION_STRING " "
+  OS << ToolName << " version " CLANG_VERSION_STRING "-"
      << getClangFullRepositoryVersion();
 
   // If vendor supplied, include the base LLVM version as well.
