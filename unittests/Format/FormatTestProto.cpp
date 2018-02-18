@@ -432,5 +432,41 @@ TEST_F(FormatTestProto, FormatsOptionsExtensions) {
                "};");
 }
 
+TEST_F(FormatTestProto, NoSpaceAfterPercent) {
+  verifyFormat("option (MyProto.options) = {\n"
+               "  key: %lld\n"
+               "};");
+}
+
+TEST_F(FormatTestProto, FormatsRepeatedListInitializersInOptions) {
+  verifyFormat("option (MyProto.options) = {\n"
+               "  key: item\n"
+               "  keys: [\n"
+               "    'ala',\n"
+               "    'bala',\n"
+               "    'porto',\n"
+               "    'kala',\n"
+               "    'too',\n"
+               "    'long',\n"
+               "    'long',\n"
+               "    'long'\n"
+               "  ]\n"
+               "  key: [ item ]\n"
+               "  msg {\n"
+               "    key: item\n"
+               "    keys: [\n"
+               "      'ala',\n"
+               "      'bala',\n"
+               "      'porto',\n"
+               "      'kala',\n"
+               "      'too',\n"
+               "      'long',\n"
+               "      'long'\n"
+               "    ]\n"
+               "  }\n"
+               "  key: value\n"
+               "};");
+}
+
 } // end namespace tooling
 } // end namespace clang
