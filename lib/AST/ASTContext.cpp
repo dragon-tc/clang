@@ -2186,7 +2186,7 @@ structHasUniqueObjectRepresentations(const ASTContext &Context,
       }
     }
 
-    std::sort(
+    llvm::sort(
         Bases.begin(), Bases.end(), [&](const std::pair<QualType, int64_t> &L,
                                         const std::pair<QualType, int64_t> &R) {
           return Layout.getBaseClassOffset(L.first->getAsCXXRecordDecl()) <
@@ -9494,10 +9494,13 @@ bool ASTContext::DeclMustBeEmitted(const Decl *D) {
           return true;
 
   // If the decl is marked as `declare target`, it should be emitted.
-  for (const auto *Decl = D->getMostRecentDecl(); Decl;
-       Decl = Decl->getPreviousDecl())
-    if (Decl->hasAttr<OMPDeclareTargetDeclAttr>())
-      return true;
+  for (const auto *Decl : D->redecls()) {
+    if (!Decl->hasAttrs())
+      continue;
+    if (const auto *Attr = Decl->getAttr<OMPDeclareTargetDeclAttr>())
+      if (Attr->getMapType() != OMPDeclareTargetDeclAttr::MT_Link)
+        return true;
+  }
 
   return false;
 }

@@ -1889,7 +1889,7 @@ def Target : InheritableAttr {
     template<class Compare>
     ParsedTargetAttr parse(Compare cmp) const {
       ParsedTargetAttr Attrs = parse();
-      std::sort(std::begin(Attrs.Features), std::end(Attrs.Features), cmp);
+      llvm::sort(std::begin(Attrs.Features), std::end(Attrs.Features), cmp);
       return Attrs;
     }
 
@@ -2776,6 +2776,14 @@ def OMPCaptureKind : Attr {
   let Spellings = [];
   let SemaHandler = 0;
   let Args = [UnsignedArgument<"CaptureKind">];
+  let Documentation = [Undocumented];
+}
+
+def OMPReferencedVar : Attr {
+  // This attribute has no spellings as it is only ever created implicitly.
+  let Spellings = [];
+  let SemaHandler = 0;
+  let Args = [ExprArgument<"Ref">];
   let Documentation = [Undocumented];
 }
 

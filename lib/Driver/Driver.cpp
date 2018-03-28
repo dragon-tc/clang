@@ -1474,11 +1474,11 @@ void Driver::HandleAutocompletions(StringRef PassedFlags) const {
   // deterministic order. We could sort in any way, but we chose
   // case-insensitive sorting for consistency with the -help option
   // which prints out options in the case-insensitive alphabetical order.
-  std::sort(SuggestedCompletions.begin(), SuggestedCompletions.end(),
-            [](StringRef A, StringRef B) {
-              if (int X = A.compare_lower(B))
-                return X < 0;
-              return A.compare(B) > 0;
+  llvm::sort(SuggestedCompletions.begin(), SuggestedCompletions.end(),
+             [](StringRef A, StringRef B) {
+               if (int X = A.compare_lower(B))
+                 return X < 0;
+               return A.compare(B) > 0;
             });
 
   llvm::outs() << llvm::join(SuggestedCompletions, "\n") << '\n';
@@ -2171,7 +2171,7 @@ class OffloadingActionBuilder final {
               break;
 
             CudaDeviceActions[I] = C.getDriver().ConstructPhaseAction(
-                C, Args, Ph, CudaDeviceActions[I]);
+                C, Args, Ph, CudaDeviceActions[I], Action::OFK_Cuda);
 
             if (Ph == phases::Assemble)
               break;
@@ -3011,8 +3011,9 @@ void Driver::BuildActions(Compilation &C, DerivedArgList &Args,
   Args.ClaimAllArgs(options::OPT_cuda_compile_host_device);
 }
 
-Action *Driver::ConstructPhaseAction(Compilation &C, const ArgList &Args,
-                                     phases::ID Phase, Action *Input) const {
+Action *Driver::ConstructPhaseAction(
+    Compilation &C, const ArgList &Args, phases::ID Phase, Action *Input,
+    Action::OffloadKind TargetDeviceOffloadKind) const {
   llvm::PrettyStackTraceString CrashInfo("Constructing phase actions");
 
   // Some types skip the assembler phase (e.g., llvm-bc), but we can't
@@ -3074,7 +3075,7 @@ Action *Driver::ConstructPhaseAction(Compilation &C, const ArgList &Args,
     return C.MakeAction<CompileJobAction>(Input, types::TY_LLVM_BC);
   }
   case phases::Backend: {
-    if (isUsingLTO()) {
+    if (isUsingLTO() && TargetDeviceOffloadKind == Action::OFK_None) {
       types::ID Output =
           Args.hasArg(options::OPT_S) ? types::TY_LTO_IR : types::TY_LTO_BC;
       return C.MakeAction<BackendJobAction>(Input, Output);

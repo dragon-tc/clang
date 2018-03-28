@@ -693,7 +693,7 @@ AST_POLYMORPHIC_MATCHER_P(
 ///    varDecl(hasInitializer(cxxConstructExpr()))
 /// \endcode
 /// only match the declarations for b and c.
-AST_MATCHER_P(Expr, ignoringImplicit, ast_matchers::internal::Matcher<Expr>,
+AST_MATCHER_P(Expr, ignoringImplicit, internal::Matcher<Expr>,
               InnerMatcher) {
   return InnerMatcher.matches(*Node.IgnoreImplicit(), Finder, Builder);
 }
@@ -4001,6 +4001,26 @@ AST_POLYMORPHIC_MATCHER_P(hasOperatorName,
                                                           UnaryOperator),
                           std::string, Name) {
   return Name == Node.getOpcodeStr(Node.getOpcode());
+}
+
+/// \brief Matches on all kinds of assignment operators.
+///
+/// Example 1: matches a += b (matcher = binaryOperator(isAssignmentOperator()))
+/// \code
+///   if (a == b)
+///     a += b;
+/// \endcode
+///
+/// Example 2: matches s1 = s2
+///            (matcher = cxxOperatorCallExpr(isAssignmentOperator()))
+/// \code
+///   struct S { S& operator=(const S&); };
+///   void x() { S s1, s2; s1 = s2; })
+/// \endcode
+AST_POLYMORPHIC_MATCHER(isAssignmentOperator,
+                        AST_POLYMORPHIC_SUPPORTED_TYPES(BinaryOperator,
+                                                        CXXOperatorCallExpr)) {
+  return Node.isAssignmentOp();
 }
 
 /// \brief Matches the left hand side of binary operator expressions.
