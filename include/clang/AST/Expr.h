@@ -583,7 +583,8 @@ public:
   /// this function returns true, it returns the folded constant in Result. If
   /// the expression is a glvalue, an lvalue-to-rvalue conversion will be
   /// applied.
-  bool EvaluateAsRValue(EvalResult &Result, const ASTContext &Ctx) const;
+  bool EvaluateAsRValue(EvalResult &Result, const ASTContext &Ctx,
+                        bool InConstantContext = false) const;
 
   /// EvaluateAsBooleanCondition - Return true if this is a constant
   /// which we can fold and convert to a boolean condition using
@@ -600,7 +601,7 @@ public:
 
   /// EvaluateAsInt - Return true if this is a constant which we can fold and
   /// convert to an integer, using any crazy technique that we want to.
-  bool EvaluateAsInt(llvm::APSInt &Result, const ASTContext &Ctx,
+  bool EvaluateAsInt(EvalResult &Result, const ASTContext &Ctx,
                      SideEffectsKind AllowSideEffects = SE_NoSideEffects) const;
 
   /// EvaluateAsFloat - Return true if this is a constant which we can fold and
@@ -901,9 +902,14 @@ public:
 
 /// ConstantExpr - An expression that occurs in a constant context.
 class ConstantExpr : public FullExpr {
-public:
   ConstantExpr(Expr *subexpr)
     : FullExpr(ConstantExprClass, subexpr) {}
+
+public:
+  static ConstantExpr *Create(const ASTContext &Context, Expr *E) {
+    assert(!isa<ConstantExpr>(E));
+    return new (Context) ConstantExpr(E);
+  }
 
   /// Build an empty constant expression wrapper.
   explicit ConstantExpr(EmptyShell Empty)
@@ -2315,9 +2321,11 @@ public:
 
 /// ArraySubscriptExpr - [C99 6.5.2.1] Array Subscripting.
 class ArraySubscriptExpr : public Expr {
-  enum { LHS, RHS, END_EXPR=2 };
-  Stmt* SubExprs[END_EXPR];
-  SourceLocation RBracketLoc;
+  enum { LHS, RHS, END_EXPR };
+  Stmt *SubExprs[END_EXPR];
+
+  bool lhsIsBase() const { return getRHS()->getType()->isIntegerType(); }
+
 public:
   ArraySubscriptExpr(Expr *lhs, Expr *rhs, QualType t,
                      ExprValueKind VK, ExprObjectKind OK,
@@ -2328,10 +2336,10 @@ public:
          (lhs->isInstantiationDependent() ||
           rhs->isInstantiationDependent()),
          (lhs->containsUnexpandedParameterPack() ||
-          rhs->containsUnexpandedParameterPack())),
-    RBracketLoc(rbracketloc) {
+          rhs->containsUnexpandedParameterPack())) {
     SubExprs[LHS] = lhs;
     SubExprs[RHS] = rhs;
+    ArraySubscriptExprBits.RBracketLoc = rbracketloc;
   }
 
   /// Create an empty array subscript expression.
@@ -2355,29 +2363,23 @@ public:
   const Expr *getRHS() const { return cast<Expr>(SubExprs[RHS]); }
   void setRHS(Expr *E) { SubExprs[RHS] = E; }
 
-  Expr *getBase() {
-    return getRHS()->getType()->isIntegerType() ? getLHS() : getRHS();
-  }
+  Expr *getBase() { return lhsIsBase() ? getLHS() : getRHS(); }
+  const Expr *getBase() const { return lhsIsBase() ? getLHS() : getRHS(); }
 
-  const Expr *getBase() const {
-    return getRHS()->getType()->isIntegerType() ? getLHS() : getRHS();
-  }
-
-  Expr *getIdx() {
-    return getRHS()->getType()->isIntegerType() ? getRHS() : getLHS();
-  }
-
-  const Expr *getIdx() const {
-    return getRHS()->getType()->isIntegerType() ? getRHS() : getLHS();
-  }
+  Expr *getIdx() { return lhsIsBase() ? getRHS() : getLHS(); }
+  const Expr *getIdx() const { return lhsIsBase() ? getRHS() : getLHS(); }
 
   SourceLocation getBeginLoc() const LLVM_READONLY {
     return getLHS()->getBeginLoc();
   }
-  SourceLocation getEndLoc() const LLVM_READONLY { return RBracketLoc; }
+  SourceLocation getEndLoc() const { return getRBracketLoc(); }
 
-  SourceLocation getRBracketLoc() const { return RBracketLoc; }
-  void setRBracketLoc(SourceLocation L) { RBracketLoc = L; }
+  SourceLocation getRBracketLoc() const {
+    return ArraySubscriptExprBits.RBracketLoc;
+  }
+  void setRBracketLoc(SourceLocation L) {
+    ArraySubscriptExprBits.RBracketLoc = L;
+  }
 
   SourceLocation getExprLoc() const LLVM_READONLY {
     return getBase()->getExprLoc();
@@ -2410,15 +2412,22 @@ class CallExpr : public Expr {
 
   void updateDependenciesFromArg(Expr *Arg);
 
+public:
+  enum class ADLCallKind : bool { NotADL, UsesADL };
+  static constexpr ADLCallKind NotADL = ADLCallKind::NotADL;
+  static constexpr ADLCallKind UsesADL = ADLCallKind::UsesADL;
+
 protected:
   // These versions of the constructor are for derived classes.
   CallExpr(const ASTContext &C, StmtClass SC, Expr *fn,
            ArrayRef<Expr *> preargs, ArrayRef<Expr *> args, QualType t,
-           ExprValueKind VK, SourceLocation rparenloc);
+           ExprValueKind VK, SourceLocation rparenloc, unsigned MinNumArgs = 0,
+           ADLCallKind UsesADL = NotADL);
   CallExpr(const ASTContext &C, StmtClass SC, Expr *fn, ArrayRef<Expr *> args,
-           QualType t, ExprValueKind VK, SourceLocation rparenloc);
+           QualType t, ExprValueKind VK, SourceLocation rparenloc,
+           unsigned MinNumArgs = 0, ADLCallKind UsesADL = NotADL);
   CallExpr(const ASTContext &C, StmtClass SC, unsigned NumPreArgs,
-           EmptyShell Empty);
+           unsigned NumArgs, EmptyShell Empty);
 
   Stmt *getPreArg(unsigned i) {
     assert(i < getNumPreArgs() && "Prearg access out of range!");
@@ -2436,15 +2445,27 @@ protected:
   unsigned getNumPreArgs() const { return CallExprBits.NumPreArgs; }
 
 public:
-  CallExpr(const ASTContext& C, Expr *fn, ArrayRef<Expr*> args, QualType t,
-           ExprValueKind VK, SourceLocation rparenloc);
+  /// Build a call expression. MinNumArgs specifies the minimum number of
+  /// arguments. The actual number of arguments will be the greater of
+  /// args.size() and MinNumArgs.
+  CallExpr(const ASTContext &C, Expr *fn, ArrayRef<Expr *> args, QualType t,
+           ExprValueKind VK, SourceLocation rparenloc, unsigned MinNumArgs = 0,
+           ADLCallKind UsesADL = NotADL);
 
   /// Build an empty call expression.
-  CallExpr(const ASTContext &C, StmtClass SC, EmptyShell Empty);
+  CallExpr(const ASTContext &C, unsigned NumArgs, EmptyShell Empty);
 
   const Expr *getCallee() const { return cast<Expr>(SubExprs[FN]); }
   Expr *getCallee() { return cast<Expr>(SubExprs[FN]); }
   void setCallee(Expr *F) { SubExprs[FN] = F; }
+
+  ADLCallKind getADLCallKind() const {
+    return static_cast<ADLCallKind>(CallExprBits.UsesADL);
+  }
+  void setADLCallKind(ADLCallKind V = UsesADL) {
+    CallExprBits.UsesADL = static_cast<bool>(V);
+  }
+  bool usesADL() const { return getADLCallKind() == UsesADL; }
 
   Decl *getCalleeDecl();
   const Decl *getCalleeDecl() const {
@@ -2486,10 +2507,18 @@ public:
     SubExprs[Arg+getNumPreArgs()+PREARGS_START] = ArgExpr;
   }
 
-  /// setNumArgs - This changes the number of arguments present in this call.
-  /// Any orphaned expressions are deleted by this, and any new operands are set
-  /// to null.
-  void setNumArgs(const ASTContext& C, unsigned NumArgs);
+  /// Reduce the number of arguments in this call expression. This is used for
+  /// example during error recovery to drop extra arguments. There is no way
+  /// to perform the opposite because: 1.) We don't track how much storage
+  /// we have for the argument array 2.) This would potentially require growing
+  /// the argument array, something we cannot support since the arguments will
+  /// be stored in a trailing array in the future.
+  /// (TODO: update this comment when this is done).
+  void shrinkNumArgs(unsigned NewNumArgs) {
+    assert((NewNumArgs <= NumArgs) &&
+           "shrinkNumArgs cannot increase the number of arguments!");
+    NumArgs = NewNumArgs;
+  }
 
   typedef ExprIterator arg_iterator;
   typedef ConstExprIterator const_arg_iterator;
@@ -3091,8 +3120,8 @@ inline Expr *Expr::IgnoreImpCasts() {
   while (true)
     if (ImplicitCastExpr *ice = dyn_cast<ImplicitCastExpr>(e))
       e = ice->getSubExpr();
-    else if (ConstantExpr *ce = dyn_cast<ConstantExpr>(e))
-      e = ce->getSubExpr();
+    else if (FullExpr *fe = dyn_cast<FullExpr>(e))
+      e = fe->getSubExpr();
     else
       break;
   return e;
@@ -4848,31 +4877,46 @@ public:
   }
 };
 
-class ParenListExpr : public Expr {
-  Stmt **Exprs;
-  unsigned NumExprs;
+class ParenListExpr final
+    : public Expr,
+      private llvm::TrailingObjects<ParenListExpr, Stmt *> {
+  friend class ASTStmtReader;
+  friend TrailingObjects;
+
+  /// The location of the left and right parentheses.
   SourceLocation LParenLoc, RParenLoc;
 
-public:
-  ParenListExpr(const ASTContext& C, SourceLocation lparenloc,
-                ArrayRef<Expr*> exprs, SourceLocation rparenloc);
+  /// Build a paren list.
+  ParenListExpr(SourceLocation LParenLoc, ArrayRef<Expr *> Exprs,
+                SourceLocation RParenLoc);
 
   /// Build an empty paren list.
-  explicit ParenListExpr(EmptyShell Empty) : Expr(ParenListExprClass, Empty) { }
+  ParenListExpr(EmptyShell Empty, unsigned NumExprs);
 
-  unsigned getNumExprs() const { return NumExprs; }
+public:
+  /// Create a paren list.
+  static ParenListExpr *Create(const ASTContext &Ctx, SourceLocation LParenLoc,
+                               ArrayRef<Expr *> Exprs,
+                               SourceLocation RParenLoc);
 
-  const Expr* getExpr(unsigned Init) const {
+  /// Create an empty paren list.
+  static ParenListExpr *CreateEmpty(const ASTContext &Ctx, unsigned NumExprs);
+
+  /// Return the number of expressions in this paren list.
+  unsigned getNumExprs() const { return ParenListExprBits.NumExprs; }
+
+  Expr *getExpr(unsigned Init) {
     assert(Init < getNumExprs() && "Initializer access out of range!");
-    return cast_or_null<Expr>(Exprs[Init]);
+    return getExprs()[Init];
   }
 
-  Expr* getExpr(unsigned Init) {
-    assert(Init < getNumExprs() && "Initializer access out of range!");
-    return cast_or_null<Expr>(Exprs[Init]);
+  const Expr *getExpr(unsigned Init) const {
+    return const_cast<ParenListExpr *>(this)->getExpr(Init);
   }
 
-  Expr **getExprs() { return reinterpret_cast<Expr **>(Exprs); }
+  Expr **getExprs() {
+    return reinterpret_cast<Expr **>(getTrailingObjects<Stmt *>());
+  }
 
   ArrayRef<Expr *> exprs() {
     return llvm::makeArrayRef(getExprs(), getNumExprs());
@@ -4880,9 +4924,8 @@ public:
 
   SourceLocation getLParenLoc() const { return LParenLoc; }
   SourceLocation getRParenLoc() const { return RParenLoc; }
-
-  SourceLocation getBeginLoc() const LLVM_READONLY { return LParenLoc; }
-  SourceLocation getEndLoc() const LLVM_READONLY { return RParenLoc; }
+  SourceLocation getBeginLoc() const { return getLParenLoc(); }
+  SourceLocation getEndLoc() const { return getRParenLoc(); }
 
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == ParenListExprClass;
@@ -4890,14 +4933,13 @@ public:
 
   // Iterators
   child_range children() {
-    return child_range(&Exprs[0], &Exprs[0]+NumExprs);
+    return child_range(getTrailingObjects<Stmt *>(),
+                       getTrailingObjects<Stmt *>() + getNumExprs());
   }
   const_child_range children() const {
-    return const_child_range(&Exprs[0], &Exprs[0] + NumExprs);
+    return const_child_range(getTrailingObjects<Stmt *>(),
+                             getTrailingObjects<Stmt *>() + getNumExprs());
   }
-
-  friend class ASTStmtReader;
-  friend class ASTStmtWriter;
 };
 
 /// Represents a C11 generic selection.

@@ -26,10 +26,10 @@
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/DeclOpenMP.h"
+#include "clang/Basic/CodeGenOptions.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/CodeGen/CGFunctionInfo.h"
-#include "clang/Frontend/CodeGenOptions.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/GlobalVariable.h"
@@ -2185,5 +2185,5 @@ void CodeGenModule::EmitOMPDeclareReduction(const OMPDeclareReductionDecl *D,
 }
 
 void CodeGenModule::EmitOMPRequiresDecl(const OMPRequiresDecl *D) {
-  //Do nothing - here to avoid build errors
+  getOpenMPRuntime().checkArchForUnifiedAddressing(*this, D);
 }

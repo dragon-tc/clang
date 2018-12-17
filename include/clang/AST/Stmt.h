@@ -416,12 +416,23 @@ protected:
     unsigned IsType : 1; // true if operand is a type, false if an expression.
   };
 
+  class ArraySubscriptExprBitfields {
+    friend class ArraySubscriptExpr;
+
+    unsigned : NumExprBits;
+
+    SourceLocation RBracketLoc;
+  };
+
   class CallExprBitfields {
     friend class CallExpr;
 
     unsigned : NumExprBits;
 
     unsigned NumPreArgs : 1;
+
+    /// True if the callee of the call expression was found using ADL.
+    unsigned UsesADL : 1;
   };
 
   class MemberExprBitfields {
@@ -486,6 +497,16 @@ protected:
     /// Whether this initializer list originally had a GNU array-range
     /// designator in it. This is a temporary marker used by CodeGen.
     unsigned HadArrayRangeDesignator : 1;
+  };
+
+  class ParenListExprBitfields {
+    friend class ASTStmtReader;
+    friend class ParenListExpr;
+
+    unsigned : NumExprBits;
+
+    /// The number of expressions in the paren list.
+    unsigned NumExprs;
   };
 
   class PseudoObjectExprBitfields {
@@ -565,6 +586,31 @@ protected:
     unsigned : NumExprBits;
 
     /// The location where the default initializer expression was used.
+    SourceLocation Loc;
+  };
+
+  class CXXDeleteExprBitfields {
+    friend class ASTStmtReader;
+    friend class CXXDeleteExpr;
+
+    unsigned : NumExprBits;
+
+    /// Is this a forced global delete, i.e. "::delete"?
+    unsigned GlobalDelete : 1;
+
+    /// Is this the array form of delete, i.e. "delete[]"?
+    unsigned ArrayForm : 1;
+
+    /// ArrayFormAsWritten can be different from ArrayForm if 'delete' is
+    /// applied to pointer-to-array type (ArrayFormAsWritten will be false
+    /// while ArrayForm will be true).
+    unsigned ArrayFormAsWritten : 1;
+
+    /// Does the usual deallocation function for the element type require
+    /// a size_t argument?
+    unsigned UsualArrayDeleteWantsSize : 1;
+
+    /// Location of the expression.
     SourceLocation Loc;
   };
 
@@ -658,11 +704,13 @@ protected:
     CharacterLiteralBitfields CharacterLiteralBits;
     UnaryOperatorBitfields UnaryOperatorBits;
     UnaryExprOrTypeTraitExprBitfields UnaryExprOrTypeTraitExprBits;
+    ArraySubscriptExprBitfields ArraySubscriptExprBits;
     CallExprBitfields CallExprBits;
     MemberExprBitfields MemberExprBits;
     CastExprBitfields CastExprBits;
     BinaryOperatorBitfields BinaryOperatorBits;
     InitListExprBitfields InitListExprBits;
+    ParenListExprBitfields ParenListExprBits;
     PseudoObjectExprBitfields PseudoObjectExprBits;
 
     // C++ Expressions
@@ -672,6 +720,7 @@ protected:
     CXXThrowExprBitfields CXXThrowExprBits;
     CXXDefaultArgExprBitfields CXXDefaultArgExprBits;
     CXXDefaultInitExprBitfields CXXDefaultInitExprBits;
+    CXXDeleteExprBitfields CXXDeleteExprBits;
     TypeTraitExprBitfields TypeTraitExprBits;
     ExprWithCleanupsBitfields ExprWithCleanupsBits;
 
