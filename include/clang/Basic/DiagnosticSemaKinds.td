@@ -3425,7 +3425,7 @@ def err_ns_attribute_wrong_parameter_type : Error<
   "%select{Objective-C object|pointer|pointer-to-CF-pointer}1 parameters">;
 def warn_ns_attribute_wrong_parameter_type : Warning<
   "%0 attribute only applies to "
-  "%select{Objective-C object|pointer|pointer-to-CF-pointer}1 parameters">,
+  "%select{Objective-C object|pointer|pointer-to-CF-pointer|pointer/reference-to-OSObject-pointer}1 parameters">,
   InGroup<IgnoredAttributes>;
 def warn_objc_requires_super_protocol : Warning<
   "%0 attribute cannot be applied to %select{methods in protocols|dealloc}1">,
@@ -4565,7 +4565,10 @@ def warn_unavailable_fwdclass_message : Warning<
     InGroup<UnavailableDeclarations>;
 def note_availability_specified_here : Note<
   "%0 has been explicitly marked "
-  "%select{unavailable|deleted|deprecated|partial}1 here">;
+  "%select{unavailable|deleted|deprecated}1 here">;
+def note_partial_availability_specified_here : Note<
+  "%0 has been marked as being introduced in %1 %2 here, "
+  "but the deployment target is %1 %3">;
 def note_implicitly_deleted : Note<
   "explicitly defaulted function was implicitly deleted here">;
 def warn_not_enough_argument : Warning<
@@ -5875,7 +5878,8 @@ def ext_typecheck_comparison_of_fptr_to_void : Extension<
 def err_typecheck_comparison_of_fptr_to_void : Error<
   "equality comparison between function pointer and void pointer (%0 and %1)">;
 def ext_typecheck_comparison_of_pointer_integer : ExtWarn<
-  "comparison between pointer and integer (%0 and %1)">;
+  "comparison between pointer and integer (%0 and %1)">,
+  InGroup<DiagGroup<"pointer-integer-compare">>;
 def err_typecheck_comparison_of_pointer_integer : Error<
   "comparison between pointer and integer (%0 and %1)">;
 def ext_typecheck_comparison_of_distinct_pointers : ExtWarn<
@@ -6455,12 +6459,12 @@ def warn_non_virtual_dtor : Warning<
 def warn_delete_non_virtual_dtor : Warning<
   "%select{delete|destructor}0 called on non-final %1 that has "
   "virtual functions but non-virtual destructor">,
-  InGroup<DeleteNonVirtualDtor>, DefaultIgnore, ShowInSystemHeader;
+  InGroup<DeleteNonAbstractNonVirtualDtor>, DefaultIgnore, ShowInSystemHeader;
 def note_delete_non_virtual : Note<
   "qualify call to silence this warning">;
 def warn_delete_abstract_non_virtual_dtor : Warning<
   "%select{delete|destructor}0 called on %1 that is abstract but has "
-  "non-virtual destructor">, InGroup<DeleteNonVirtualDtor>, ShowInSystemHeader;
+  "non-virtual destructor">, InGroup<DeleteAbstractNonVirtualDtor>, ShowInSystemHeader;
 def warn_overloaded_virtual : Warning<
   "%q0 hides overloaded virtual %select{function|functions}1">,
   InGroup<OverloadedVirtual>, DefaultIgnore;
