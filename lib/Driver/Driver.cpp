@@ -1,9 +1,8 @@
 //===--- Driver.cpp - Clang GCC Compatible Driver -------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -29,6 +28,7 @@
 #include "ToolChains/Hurd.h"
 #include "ToolChains/Lanai.h"
 #include "ToolChains/Linux.h"
+#include "ToolChains/MSP430.h"
 #include "ToolChains/MSVC.h"
 #include "ToolChains/MinGW.h"
 #include "ToolChains/Minix.h"
@@ -4636,6 +4636,10 @@ const ToolChain &Driver::getToolChain(const ArgList &Args,
         break;
       case llvm::Triple::avr:
         TC = llvm::make_unique<toolchains::AVRToolChain>(*this, Target, Args);
+        break;
+      case llvm::Triple::msp430:
+        TC =
+            llvm::make_unique<toolchains::MSP430ToolChain>(*this, Target, Args);
         break;
       case llvm::Triple::riscv32:
       case llvm::Triple::riscv64:

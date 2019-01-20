@@ -1,9 +1,8 @@
 //===--- TextNodeDumper.h - Printing of AST nodes -------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -22,6 +21,7 @@
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/StmtVisitor.h"
 #include "clang/AST/TemplateArgumentVisitor.h"
+#include "clang/AST/TypeVisitor.h"
 
 namespace clang {
 
@@ -127,7 +127,8 @@ class TextNodeDumper
                                            const comments::FullComment *>,
       public ConstAttrVisitor<TextNodeDumper>,
       public ConstTemplateArgumentVisitor<TextNodeDumper>,
-      public ConstStmtVisitor<TextNodeDumper> {
+      public ConstStmtVisitor<TextNodeDumper>,
+      public TypeVisitor<TextNodeDumper> {
   raw_ostream &OS;
   const bool ShowColors;
 
@@ -162,6 +163,14 @@ public:
   void Visit(const Type *T);
 
   void Visit(QualType T);
+
+  void Visit(const Decl *D);
+
+  void Visit(const CXXCtorInitializer *Init);
+
+  void Visit(const OMPClause *C);
+
+  void Visit(const BlockDecl::Capture &C);
 
   void dumpPointer(const void *Ptr);
   void dumpLocation(SourceLocation Loc);
@@ -258,6 +267,26 @@ public:
   void VisitObjCSubscriptRefExpr(const ObjCSubscriptRefExpr *Node);
   void VisitObjCIvarRefExpr(const ObjCIvarRefExpr *Node);
   void VisitObjCBoolLiteralExpr(const ObjCBoolLiteralExpr *Node);
+
+  void VisitRValueReferenceType(const ReferenceType *T);
+  void VisitArrayType(const ArrayType *T);
+  void VisitConstantArrayType(const ConstantArrayType *T);
+  void VisitVariableArrayType(const VariableArrayType *T);
+  void VisitDependentSizedArrayType(const DependentSizedArrayType *T);
+  void VisitDependentSizedExtVectorType(const DependentSizedExtVectorType *T);
+  void VisitVectorType(const VectorType *T);
+  void VisitFunctionType(const FunctionType *T);
+  void VisitFunctionProtoType(const FunctionProtoType *T);
+  void VisitUnresolvedUsingType(const UnresolvedUsingType *T);
+  void VisitTypedefType(const TypedefType *T);
+  void VisitUnaryTransformType(const UnaryTransformType *T);
+  void VisitTagType(const TagType *T);
+  void VisitTemplateTypeParmType(const TemplateTypeParmType *T);
+  void VisitAutoType(const AutoType *T);
+  void VisitTemplateSpecializationType(const TemplateSpecializationType *T);
+  void VisitInjectedClassNameType(const InjectedClassNameType *T);
+  void VisitObjCInterfaceType(const ObjCInterfaceType *T);
+  void VisitPackExpansionType(const PackExpansionType *T);
 
 private:
   void dumpCXXTemporary(const CXXTemporary *Temporary);

@@ -1,9 +1,8 @@
 //===- unittests/Lex/PPCallbacksTest.cpp - PPCallbacks tests ------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===--------------------------------------------------------------===//
 
@@ -483,6 +482,17 @@ TEST_F(PPCallbacksTest, DirectiveExprRanges) {
   EXPECT_EQ(
       GetSourceStringToEnd(CharSourceRange(Results7[1].ConditionRange, false)),
       "defined(FLOOFY)");
+
+  const auto &Results8 =
+      DirectiveExprRange("#define FLOOFY 0\n#if __FILE__ > FLOOFY\n#endif\n");
+  EXPECT_EQ(Results8.size(), 1U);
+  EXPECT_EQ(
+      GetSourceStringToEnd(CharSourceRange(Results8[0].ConditionRange, false)),
+      "__FILE__ > FLOOFY");
+  EXPECT_EQ(
+      Lexer::getSourceText(CharSourceRange(Results8[0].ConditionRange, false),
+                           SourceMgr, LangOpts),
+      "__FILE__ > FLOOFY");
 }
 
 } // namespace

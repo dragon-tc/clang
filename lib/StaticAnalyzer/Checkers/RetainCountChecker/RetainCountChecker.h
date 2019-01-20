@@ -1,9 +1,8 @@
 //==--- RetainCountChecker.h - Checks for leaks and other issues -*- C++ -*--//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -251,10 +250,15 @@ class RetainCountChecker
                     check::RegionChanges,
                     eval::Assume,
                     eval::Call > {
-  mutable std::unique_ptr<RefCountBug> useAfterRelease, releaseNotOwned;
-  mutable std::unique_ptr<RefCountBug> deallocNotOwned;
-  mutable std::unique_ptr<RefCountBug> overAutorelease, returnNotOwnedForOwned;
-  mutable std::unique_ptr<RefCountBug> leakWithinFunction, leakAtReturn;
+
+  RefCountBug useAfterRelease{this, RefCountBug::UseAfterRelease};
+  RefCountBug releaseNotOwned{this, RefCountBug::ReleaseNotOwned};
+  RefCountBug deallocNotOwned{this, RefCountBug::DeallocNotOwned};
+  RefCountBug freeNotOwned{this, RefCountBug::FreeNotOwned};
+  RefCountBug overAutorelease{this, RefCountBug::OverAutorelease};
+  RefCountBug returnNotOwnedForOwned{this, RefCountBug::ReturnNotOwnedForOwned};
+  RefCountBug leakWithinFunction{this, RefCountBug::LeakWithinFunction};
+  RefCountBug leakAtReturn{this, RefCountBug::LeakAtReturn};
 
   mutable std::unique_ptr<RetainSummaryManager> Summaries;
 public:
@@ -266,11 +270,7 @@ public:
   /// Track sublcasses of OSObject.
   bool TrackOSObjects = false;
 
-  RetainCountChecker() {}
-
-  RefCountBug *getLeakWithinFunctionBug(const LangOptions &LOpts) const;
-
-  RefCountBug *getLeakAtReturnBug(const LangOptions &LOpts) const;
+  RetainCountChecker() {};
 
   RetainSummaryManager &getSummaryManager(ASTContext &Ctx) const {
     // FIXME: We don't support ARC being turned on and off during one analysis.
@@ -336,6 +336,9 @@ public:
                                RefVal V, ArgEffect E, RefVal::Kind &hasErr,
                                CheckerContext &C) const;
 
+  const RefCountBug &errorKindToBugKind(RefVal::Kind ErrorKind,
+                                        SymbolRef Sym) const;
+
   void processNonLeakError(ProgramStateRef St, SourceRange ErrorRange,
                            RefVal::Kind ErrorKind, SymbolRef Sym,
                            CheckerContext &C) const;
@@ -370,11 +373,6 @@ private:
 //===----------------------------------------------------------------------===//
 
 const RefVal *getRefBinding(ProgramStateRef State, SymbolRef Sym);
-
-ProgramStateRef setRefBinding(ProgramStateRef State, SymbolRef Sym,
-                                     RefVal Val);
-
-ProgramStateRef removeRefBinding(ProgramStateRef State, SymbolRef Sym);
 
 /// Returns true if this stack frame is for an Objective-C method that is a
 /// property getter or setter whose body has been synthesized by the analyzer.

@@ -1,9 +1,8 @@
 //===--- PPExpressions.cpp - Preprocessor Expression Evaluation -----------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -842,14 +841,22 @@ Preprocessor::EvaluateDirectiveExpression(IdentifierInfo *&IfNDefMacro) {
 
   PPValue ResVal(BitWidth);
   DefinedTracker DT;
+  SourceLocation ExprStartLoc = SourceMgr.getExpansionLoc(Tok.getLocation());
   if (EvaluateValue(ResVal, Tok, DT, true, *this)) {
     // Parse error, skip the rest of the macro line.
+    SourceRange ConditionRange = ExprStartLoc;
     if (Tok.isNot(tok::eod))
-      DiscardUntilEndOfDirective();
+      ConditionRange = DiscardUntilEndOfDirective();
 
     // Restore 'DisableMacroExpansion'.
     DisableMacroExpansion = DisableMacroExpansionAtStartOfDirective;
-    return {false, DT.IncludedUndefinedIds, {}};
+
+    // We cannot trust the source range from the value because there was a
+    // parse error. Track the range manually -- the end of the directive is the
+    // end of the condition range.
+    return {false,
+            DT.IncludedUndefinedIds,
+            {ExprStartLoc, ConditionRange.getEnd()}};
   }
 
   // If we are at the end of the expression after just parsing a value, there

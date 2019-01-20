@@ -1,9 +1,8 @@
 //===- Type.h - C Language Family Type Representation -----------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -2268,6 +2267,9 @@ public:
   /// Return true if this is a fixed point type according to
   /// ISO/IEC JTC1 SC22 WG14 N1169.
   bool isFixedPointType() const;
+
+  /// Return true if this is a fixed point or integer type.
+  bool isFixedPointOrIntegerType() const;
 
   /// Return true if this is a saturated fixed point type according to
   /// ISO/IEC JTC1 SC22 WG14 N1169. This type can be signed or unsigned.
@@ -6596,6 +6598,10 @@ inline bool Type::isFixedPointType() const {
   return false;
 }
 
+inline bool Type::isFixedPointOrIntegerType() const {
+  return isFixedPointType() || isIntegerType();
+}
+
 inline bool Type::isSaturatedFixedPointType() const {
   if (const auto *BT = dyn_cast<BuiltinType>(CanonicalType)) {
     return BT->getKind() >= BuiltinType::SatShortAccum &&
@@ -6841,6 +6847,8 @@ QualType DecayedType::getPointeeType() const {
 
 // Get the decimal string representation of a fixed point type, represented
 // as a scaled integer.
+// TODO: At some point, we should change the arguments to instead just accept an
+// APFixedPoint instead of APSInt and scale.
 void FixedPointValueToString(SmallVectorImpl<char> &Str, llvm::APSInt Val,
                              unsigned Scale);
 

@@ -1,9 +1,8 @@
 //===--- CGExprConstant.cpp - Emit LLVM Code from Constant Expressions ----===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -1873,6 +1872,9 @@ llvm::Constant *ConstantEmitter::tryEmitPrivate(const APValue &Value,
     return ConstantLValueEmitter(*this, Value, DestType).tryEmit();
   case APValue::Int:
     return llvm::ConstantInt::get(CGM.getLLVMContext(), Value.getInt());
+  case APValue::FixedPoint:
+    return llvm::ConstantInt::get(CGM.getLLVMContext(),
+                                  Value.getFixedPoint().getValue());
   case APValue::ComplexInt: {
     llvm::Constant *Complex[2];
 
