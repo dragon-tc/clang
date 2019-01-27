@@ -2378,7 +2378,6 @@ bool compare(ProgramStateRef State, SymbolRef Sym1, SymbolRef Sym2,
   return compare(State, nonloc::SymbolVal(Sym1), nonloc::SymbolVal(Sym2), Opc);
 }
 
-
 bool compare(ProgramStateRef State, NonLoc NL1, NonLoc NL2,
              BinaryOperator::Opcode Opc) {
   auto &SVB = State->getStateManager().getSValBuilder();
@@ -2394,12 +2393,24 @@ bool compare(ProgramStateRef State, NonLoc NL1, NonLoc NL2,
 
 } // namespace
 
+void ento::registerIteratorModeling(CheckerManager &mgr) {
+  mgr.registerChecker<IteratorChecker>();
+}
+
+bool ento::shouldRegisterIteratorModeling(const LangOptions &LO) {
+  return true;
+}
+
 #define REGISTER_CHECKER(name)                                                 \
   void ento::register##name(CheckerManager &Mgr) {                             \
-    auto *checker = Mgr.registerChecker<IteratorChecker>();                    \
+    auto *checker = Mgr.getChecker<IteratorChecker>();                         \
     checker->ChecksEnabled[IteratorChecker::CK_##name] = true;                 \
     checker->CheckNames[IteratorChecker::CK_##name] =                          \
         Mgr.getCurrentCheckName();                                             \
+  }                                                                            \
+                                                                               \
+  bool ento::shouldRegister##name(const LangOptions &LO) {                     \
+    return true;                                                               \
   }
 
 REGISTER_CHECKER(IteratorRangeChecker)
