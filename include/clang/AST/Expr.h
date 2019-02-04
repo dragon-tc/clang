@@ -28,6 +28,8 @@
 #include "clang/Basic/TypeTraits.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/APSInt.h"
+#include "llvm/ADT/iterator.h"
+#include "llvm/ADT/iterator_range.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/AtomicOrdering.h"
@@ -744,67 +746,110 @@ public:
   /// member expression.
   static QualType findBoundMemberType(const Expr *expr);
 
-  /// IgnoreImpCasts - Skip past any implicit casts which might
-  /// surround this expression.  Only skips ImplicitCastExprs.
+  /// Skip past any implicit casts which might surround this expression until
+  /// reaching a fixed point. Skips:
+  /// * ImplicitCastExpr
+  /// * FullExpr
   Expr *IgnoreImpCasts() LLVM_READONLY;
-
-  /// IgnoreImplicit - Skip past any implicit AST nodes which might
-  /// surround this expression.
-  Expr *IgnoreImplicit() LLVM_READONLY {
-    return cast<Expr>(Stmt::IgnoreImplicit());
+  const Expr *IgnoreImpCasts() const {
+    return const_cast<Expr *>(this)->IgnoreImpCasts();
   }
 
-  const Expr *IgnoreImplicit() const LLVM_READONLY {
-    return const_cast<Expr*>(this)->IgnoreImplicit();
-  }
-
-  /// IgnoreParens - Ignore parentheses.  If this Expr is a ParenExpr, return
-  ///  its subexpression.  If that subexpression is also a ParenExpr,
-  ///  then this method recursively returns its subexpression, and so forth.
-  ///  Otherwise, the method returns the current Expr.
-  Expr *IgnoreParens() LLVM_READONLY;
-
-  /// IgnoreParenCasts - Ignore parentheses and casts.  Strip off any ParenExpr
-  /// or CastExprs, returning their operand.
-  Expr *IgnoreParenCasts() LLVM_READONLY;
-
-  /// Ignore casts.  Strip off any CastExprs, returning their operand.
+  /// Skip past any casts which might surround this expression until reaching
+  /// a fixed point. Skips:
+  /// * CastExpr
+  /// * FullExpr
+  /// * MaterializeTemporaryExpr
+  /// * SubstNonTypeTemplateParmExpr
   Expr *IgnoreCasts() LLVM_READONLY;
+  const Expr *IgnoreCasts() const {
+    return const_cast<Expr *>(this)->IgnoreCasts();
+  }
 
-  /// IgnoreParenImpCasts - Ignore parentheses and implicit casts.  Strip off
-  /// any ParenExpr or ImplicitCastExprs, returning their operand.
+  /// Skip past any implicit AST nodes which might surround this expression
+  /// until reaching a fixed point. Skips:
+  /// * What IgnoreImpCasts() skips
+  /// * MaterializeTemporaryExpr
+  /// * CXXBindTemporaryExpr
+  Expr *IgnoreImplicit() LLVM_READONLY;
+  const Expr *IgnoreImplicit() const {
+    return const_cast<Expr *>(this)->IgnoreImplicit();
+  }
+
+  /// Skip past any parentheses which might surround this expression until
+  /// reaching a fixed point. Skips:
+  /// * ParenExpr
+  /// * UnaryOperator if `UO_Extension`
+  /// * GenericSelectionExpr if `!isResultDependent()`
+  /// * ChooseExpr if `!isConditionDependent()`
+  /// * ConstantExpr
+  Expr *IgnoreParens() LLVM_READONLY;
+  const Expr *IgnoreParens() const {
+    return const_cast<Expr *>(this)->IgnoreParens();
+  }
+
+  /// Skip past any parentheses and implicit casts which might surround this
+  /// expression until reaching a fixed point.
+  /// FIXME: IgnoreParenImpCasts really ought to be equivalent to
+  /// IgnoreParens() + IgnoreImpCasts() until reaching a fixed point. However
+  /// this is currently not the case. Instead IgnoreParenImpCasts() skips:
+  /// * What IgnoreParens() skips
+  /// * ImplicitCastExpr
+  /// * MaterializeTemporaryExpr
+  /// * SubstNonTypeTemplateParmExpr
   Expr *IgnoreParenImpCasts() LLVM_READONLY;
+  const Expr *IgnoreParenImpCasts() const {
+    return const_cast<Expr *>(this)->IgnoreParenImpCasts();
+  }
 
-  /// IgnoreConversionOperator - Ignore conversion operator. If this Expr is a
-  /// call to a conversion operator, return the argument.
+  /// Skip past any parentheses and casts which might surround this expression
+  /// until reaching a fixed point. Skips:
+  /// * What IgnoreParens() skips
+  /// * What IgnoreCasts() skips
+  Expr *IgnoreParenCasts() LLVM_READONLY;
+  const Expr *IgnoreParenCasts() const {
+    return const_cast<Expr *>(this)->IgnoreParenCasts();
+  }
+
+  /// Skip conversion operators. If this Expr is a call to a conversion
+  /// operator, return the argument.
   Expr *IgnoreConversionOperator() LLVM_READONLY;
-
-  const Expr *IgnoreConversionOperator() const LLVM_READONLY {
-    return const_cast<Expr*>(this)->IgnoreConversionOperator();
+  const Expr *IgnoreConversionOperator() const {
+    return const_cast<Expr *>(this)->IgnoreConversionOperator();
   }
 
-  const Expr *IgnoreParenImpCasts() const LLVM_READONLY {
-    return const_cast<Expr*>(this)->IgnoreParenImpCasts();
-  }
-
-  /// Ignore parentheses and lvalue casts.  Strip off any ParenExpr and
-  /// CastExprs that represent lvalue casts, returning their operand.
+  /// Skip past any parentheses and lvalue casts which might surround this
+  /// expression until reaching a fixed point. Skips:
+  /// * What IgnoreParens() skips
+  /// * What IgnoreCasts() skips, except that only lvalue-to-rvalue
+  ///   casts are skipped
+  /// FIXME: This is intended purely as a temporary workaround for code
+  /// that hasn't yet been rewritten to do the right thing about those
+  /// casts, and may disappear along with the last internal use.
   Expr *IgnoreParenLValueCasts() LLVM_READONLY;
-
-  const Expr *IgnoreParenLValueCasts() const LLVM_READONLY {
-    return const_cast<Expr*>(this)->IgnoreParenLValueCasts();
+  const Expr *IgnoreParenLValueCasts() const {
+    return const_cast<Expr *>(this)->IgnoreParenLValueCasts();
   }
 
-  /// IgnoreParenNoopCasts - Ignore parentheses and casts that do not change the
-  /// value (including ptr->int casts of the same size).  Strip off any
-  /// ParenExpr or CastExprs, returning their operand.
-  Expr *IgnoreParenNoopCasts(ASTContext &Ctx) LLVM_READONLY;
+  /// Skip past any parenthese and casts which do not change the value
+  /// (including ptr->int casts of the same size) until reaching a fixed point.
+  /// Skips:
+  /// * What IgnoreParens() skips
+  /// * CastExpr which do not change the value
+  /// * SubstNonTypeTemplateParmExpr
+  Expr *IgnoreParenNoopCasts(const ASTContext &Ctx) LLVM_READONLY;
+  const Expr *IgnoreParenNoopCasts(const ASTContext &Ctx) const {
+    return const_cast<Expr *>(this)->IgnoreParenNoopCasts(Ctx);
+  }
 
-  /// Ignore parentheses and derived-to-base casts.
+  /// Skip past any parentheses and derived-to-base casts until reaching a
+  /// fixed point. Skips:
+  /// * What IgnoreParens() skips
+  /// * CastExpr which represent a derived-to-base cast (CK_DerivedToBase,
+  ///   CK_UncheckedDerivedToBase and CK_NoOp)
   Expr *ignoreParenBaseCasts() LLVM_READONLY;
-
-  const Expr *ignoreParenBaseCasts() const LLVM_READONLY {
-    return const_cast<Expr*>(this)->ignoreParenBaseCasts();
+  const Expr *ignoreParenBaseCasts() const {
+    return const_cast<Expr *>(this)->ignoreParenBaseCasts();
   }
 
   /// Determine whether this expression is a default function argument.
@@ -822,24 +867,6 @@ public:
 
   /// Whether this expression is an implicit reference to 'this' in C++.
   bool isImplicitCXXThis() const;
-
-  const Expr *IgnoreImpCasts() const LLVM_READONLY {
-    return const_cast<Expr*>(this)->IgnoreImpCasts();
-  }
-  const Expr *IgnoreParens() const LLVM_READONLY {
-    return const_cast<Expr*>(this)->IgnoreParens();
-  }
-  const Expr *IgnoreParenCasts() const LLVM_READONLY {
-    return const_cast<Expr*>(this)->IgnoreParenCasts();
-  }
-  /// Strip off casts, but keep parentheses.
-  const Expr *IgnoreCasts() const LLVM_READONLY {
-    return const_cast<Expr*>(this)->IgnoreCasts();
-  }
-
-  const Expr *IgnoreParenNoopCasts(ASTContext &Ctx) const LLVM_READONLY {
-    return const_cast<Expr*>(this)->IgnoreParenNoopCasts(Ctx);
-  }
 
   static bool hasAnyTypeDependentArguments(ArrayRef<Expr *> Exprs);
 
@@ -3165,18 +3192,6 @@ public:
   friend class CastExpr;
 };
 
-inline Expr *Expr::IgnoreImpCasts() {
-  Expr *e = this;
-  while (true)
-    if (ImplicitCastExpr *ice = dyn_cast<ImplicitCastExpr>(e))
-      e = ice->getSubExpr();
-    else if (FullExpr *fe = dyn_cast<FullExpr>(e))
-      e = fe->getSubExpr();
-    else
-      break;
-  return e;
-}
-
 /// ExplicitCastExpr - An explicit cast written in the source
 /// code.
 ///
@@ -5052,6 +5067,86 @@ class GenericSelectionExpr final
     return getNumAssocs();
   }
 
+  template <bool Const> class AssociationIteratorTy;
+  /// Bundle together an association expression and its TypeSourceInfo.
+  /// The Const template parameter is for the const and non-const versions
+  /// of AssociationTy.
+  template <bool Const> class AssociationTy {
+    friend class GenericSelectionExpr;
+    template <bool OtherConst> friend class AssociationIteratorTy;
+    using ExprPtrTy =
+        typename std::conditional<Const, const Expr *, Expr *>::type;
+    using TSIPtrTy = typename std::conditional<Const, const TypeSourceInfo *,
+                                               TypeSourceInfo *>::type;
+    ExprPtrTy E;
+    TSIPtrTy TSI;
+    bool Selected;
+    AssociationTy(ExprPtrTy E, TSIPtrTy TSI, bool Selected)
+        : E(E), TSI(TSI), Selected(Selected) {}
+
+  public:
+    ExprPtrTy getAssociationExpr() const { return E; }
+    TSIPtrTy getTypeSourceInfo() const { return TSI; }
+    QualType getType() const { return TSI ? TSI->getType() : QualType(); }
+    bool isSelected() const { return Selected; }
+    AssociationTy *operator->() { return this; }
+    const AssociationTy *operator->() const { return this; }
+  }; // class AssociationTy
+
+  /// Iterator over const and non-const Association objects. The Association
+  /// objects are created on the fly when the iterator is dereferenced.
+  /// This abstract over how exactly the association expressions and the
+  /// corresponding TypeSourceInfo * are stored.
+  template <bool Const>
+  class AssociationIteratorTy
+      : public llvm::iterator_facade_base<
+            AssociationIteratorTy<Const>, std::input_iterator_tag,
+            AssociationTy<Const>, std::ptrdiff_t, AssociationTy<Const>,
+            AssociationTy<Const>> {
+    friend class GenericSelectionExpr;
+    // FIXME: This iterator could conceptually be a random access iterator, and
+    // it would be nice if we could strengthen the iterator category someday.
+    // However this iterator does not satisfy two requirements of forward
+    // iterators:
+    // a) reference = T& or reference = const T&
+    // b) If It1 and It2 are both dereferenceable, then It1 == It2 if and only
+    //    if *It1 and *It2 are bound to the same objects.
+    // An alternative design approach was discussed during review;
+    // store an Association object inside the iterator, and return a reference
+    // to it when dereferenced. This idea was discarded beacuse of nasty
+    // lifetime issues:
+    //    AssociationIterator It = ...;
+    //    const Association &Assoc = *It++; // Oops, Assoc is dangling.
+    using BaseTy = typename AssociationIteratorTy::iterator_facade_base;
+    using StmtPtrPtrTy =
+        typename std::conditional<Const, const Stmt *const *, Stmt **>::type;
+    using TSIPtrPtrTy =
+        typename std::conditional<Const, const TypeSourceInfo *const *,
+                                  TypeSourceInfo **>::type;
+    StmtPtrPtrTy E; // = nullptr; FIXME: Once support for gcc 4.8 is dropped.
+    TSIPtrPtrTy TSI; // Kept in sync with E.
+    unsigned Offset = 0, SelectedOffset = 0;
+    AssociationIteratorTy(StmtPtrPtrTy E, TSIPtrPtrTy TSI, unsigned Offset,
+                          unsigned SelectedOffset)
+        : E(E), TSI(TSI), Offset(Offset), SelectedOffset(SelectedOffset) {}
+
+  public:
+    AssociationIteratorTy() : E(nullptr), TSI(nullptr) {}
+    typename BaseTy::reference operator*() const {
+      return AssociationTy<Const>(cast<Expr>(*E), *TSI,
+                                  Offset == SelectedOffset);
+    }
+    typename BaseTy::pointer operator->() const { return **this; }
+    using BaseTy::operator++;
+    AssociationIteratorTy &operator++() {
+      ++E;
+      ++TSI;
+      ++Offset;
+      return *this;
+    }
+    bool operator==(AssociationIteratorTy Other) const { return E == Other.E; }
+  }; // class AssociationIterator
+
   /// Build a non-result-dependent generic selection expression.
   GenericSelectionExpr(const ASTContext &Context, SourceLocation GenericLoc,
                        Expr *ControllingExpr,
@@ -5091,6 +5186,14 @@ public:
   /// Create an empty generic selection expression for deserialization.
   static GenericSelectionExpr *CreateEmpty(const ASTContext &Context,
                                            unsigned NumAssocs);
+
+  using Association = AssociationTy<false>;
+  using ConstAssociation = AssociationTy<true>;
+  using AssociationIterator = AssociationIteratorTy<false>;
+  using ConstAssociationIterator = AssociationIteratorTy<true>;
+  using association_range = llvm::iterator_range<AssociationIterator>;
+  using const_association_range =
+      llvm::iterator_range<ConstAssociationIterator>;
 
   /// The number of association expressions.
   unsigned getNumAssocs() const { return NumAssocs; }
@@ -5135,23 +5238,43 @@ public:
     return {getTrailingObjects<TypeSourceInfo *>(), NumAssocs};
   }
 
-  Expr *getAssocExpr(unsigned i) {
-    return cast<Expr>(getTrailingObjects<Stmt *>()[AssocExprStartIndex + i]);
+  /// Return the Ith association expression with its TypeSourceInfo,
+  /// bundled together in GenericSelectionExpr::(Const)Association.
+  Association getAssociation(unsigned I) {
+    assert(I < getNumAssocs() &&
+           "Out-of-range index in GenericSelectionExpr::getAssociation!");
+    return Association(
+        cast<Expr>(getTrailingObjects<Stmt *>()[AssocExprStartIndex + I]),
+        getTrailingObjects<TypeSourceInfo *>()[I],
+        !isResultDependent() && (getResultIndex() == I));
   }
-  const Expr *getAssocExpr(unsigned i) const {
-    return cast<Expr>(getTrailingObjects<Stmt *>()[AssocExprStartIndex + i]);
+  ConstAssociation getAssociation(unsigned I) const {
+    assert(I < getNumAssocs() &&
+           "Out-of-range index in GenericSelectionExpr::getAssociation!");
+    return ConstAssociation(
+        cast<Expr>(getTrailingObjects<Stmt *>()[AssocExprStartIndex + I]),
+        getTrailingObjects<TypeSourceInfo *>()[I],
+        !isResultDependent() && (getResultIndex() == I));
   }
 
-  TypeSourceInfo *getAssocTypeSourceInfo(unsigned i) {
-    return getTrailingObjects<TypeSourceInfo *>()[i];
-  }
-  const TypeSourceInfo *getAssocTypeSourceInfo(unsigned i) const {
-    return getTrailingObjects<TypeSourceInfo *>()[i];
+  association_range associations() {
+    AssociationIterator Begin(getTrailingObjects<Stmt *>() +
+                                  AssocExprStartIndex,
+                              getTrailingObjects<TypeSourceInfo *>(),
+                              /*Offset=*/0, ResultIndex);
+    AssociationIterator End(Begin.E + NumAssocs, Begin.TSI + NumAssocs,
+                            /*Offset=*/NumAssocs, ResultIndex);
+    return llvm::make_range(Begin, End);
   }
 
-  QualType getAssocType(unsigned i) const {
-    const TypeSourceInfo *TSI = getAssocTypeSourceInfo(i);
-    return TSI ? TSI->getType() : QualType();
+  const_association_range associations() const {
+    ConstAssociationIterator Begin(getTrailingObjects<Stmt *>() +
+                                       AssocExprStartIndex,
+                                   getTrailingObjects<TypeSourceInfo *>(),
+                                   /*Offset=*/0, ResultIndex);
+    ConstAssociationIterator End(Begin.E + NumAssocs, Begin.TSI + NumAssocs,
+                                 /*Offset=*/NumAssocs, ResultIndex);
+    return llvm::make_range(Begin, End);
   }
 
   SourceLocation getGenericLoc() const {
